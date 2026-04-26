@@ -70,4 +70,4 @@ test --workspace` pass locally.
 
 ## Release process
 
-Releases are cut by pushing an annotated `v*` tag to `master`.
+Releases are cut by pushing an annotated `v*` tag to `main`.

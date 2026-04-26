@@ -165,7 +165,7 @@ hyperfine + criterion + bundle-size capture against each, and renders a
 markdown comparison via [benchmarks/compare.ts](benchmarks/compare.ts).
 
 ```sh
-pnpm bench:compare                     # HEAD vs merge-base with master, auto-detect
+pnpm bench:compare                     # HEAD vs merge-base with main, auto-detect
 ./benchmarks/bench.sh --base origin/main
 ./benchmarks/bench.sh --only transformer,metro-plugin
 ./benchmarks/bench.sh --skip-build     # reuse existing worktrees (fast iteration)
