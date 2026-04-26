@@ -1,10 +1,10 @@
 /**
- * Expo config plugin that wires `react-native-swc` into `metro.config.js`
+ * Expo config plugin that wires `@react-native-swc/core` into `metro.config.js`
  * during `expo prebuild`, so apps in managed / continuous-native-generation
  * workflows don't need to edit their Metro config by hand.
  *
  * Usage (app.json):
- *   "plugins": ["react-native-swc"]
+ *   "plugins": ["@react-native-swc/core"]
  *
  * If `react-native-worklets` is listed in the app's package.json, the
  * generated Metro config also registers `@react-native-swc/worklets-plugin`
@@ -30,7 +30,7 @@ import {
   type Mod,
 } from '@expo/config-plugins';
 
-const PLUGIN_NAME = 'react-native-swc';
+const PLUGIN_NAME = '@react-native-swc/core';
 const METRO_TAG_START = '@generated begin react-native-swc — do not edit';
 const METRO_TAG_END = '@generated end react-native-swc';
 
@@ -88,12 +88,12 @@ function metroScaffold(withWorklets: boolean): string {
   const literal = swcConfigLiteral(withWorklets);
   return `// Learn more https://docs.expo.io/guides/customizing-metro
 const { getDefaultConfig } = require("expo/metro-config");
-const { withSwcTransformer } = require("react-native-swc");
+const { withSwcTransformer } = require("@react-native-swc/core");
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
-/** @type {import('react-native-swc').SwcTransformerOptions} */
+/** @type {import('@react-native-swc/core').SwcTransformerOptions} */
 const swcConfig = ${literal};
 
 module.exports = withSwcTransformer(config, swcConfig);
@@ -104,7 +104,7 @@ function metroManagedBlock(withWorklets: boolean): string {
   const literal = swcConfigLiteral(withWorklets);
   return [
     `// ${METRO_TAG_START}`,
-    `const { withSwcTransformer: __rnSwcWithSwcTransformer } = require("react-native-swc");`,
+    `const { withSwcTransformer: __rnSwcWithSwcTransformer } = require("@react-native-swc/core");`,
     `module.exports = __rnSwcWithSwcTransformer(module.exports, ${literal});`,
     `// ${METRO_TAG_END}`,
     '',

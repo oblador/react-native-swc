@@ -14,12 +14,12 @@ but works with any SWC-based toolchain like Rspack/Re.Pack.
 yarn add -D @react-native-swc/worklets-plugin
 ```
 
-## Metro setup (via `react-native-swc`)
+## Metro setup (via `@react-native-swc/core`)
 
 ```js
 // metro.config.js
 const { getDefaultConfig } = require('expo/metro-config');
-const { withSwcTransformer } = require('react-native-swc');
+const { withSwcTransformer } = require('@react-native-swc/core');
 
 module.exports = withSwcTransformer(getDefaultConfig(__dirname), {
   plugins: [

@@ -102,6 +102,9 @@ importers:
         specifier: 0.5.1
         version: 0.5.1(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/metro-config@0.85.1(@babel/core@7.29.0))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
     devDependencies:
+      '@react-native-swc/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@react-native-swc/worklets-plugin':
         specifier: workspace:*
         version: link:../../packages/worklets-plugin
@@ -114,9 +117,6 @@ importers:
       eslint-config-expo:
         specifier: ~10.0.0
         version: 10.0.0(eslint@9.39.4)(typescript@5.9.3)
-      react-native-swc:
-        specifier: workspace:*
-        version: link:../../packages/react-native-swc
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -154,6 +154,9 @@ importers:
       '@react-native-community/cli-platform-ios':
         specifier: 20.1.0
         version: 20.1.0
+      '@react-native-swc/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@react-native/babel-preset':
         specifier: 0.85.1
         version: 0.85.1(@babel/core@7.29.0)
@@ -184,9 +187,6 @@ importers:
       jest:
         specifier: ^29.6.3
         version: 29.7.0(@types/node@22.19.17)
-      react-native-swc:
-        specifier: workspace:*
-        version: link:../../packages/react-native-swc
       react-test-renderer:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
@@ -194,22 +194,7 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/metro-plugin:
-    devDependencies:
-      '@rstest/core':
-        specifier: ^0.9.9
-        version: 0.9.9
-      '@swc/core':
-        specifier: ^1.15.30
-        version: 1.15.30(@swc/helpers@0.5.21)
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.17
-      '@typescript/native-preview':
-        specifier: ^7.0.0-dev.20260426.1
-        version: 7.0.0-dev.20260426.1
-
-  packages/react-native-swc:
+  packages/core:
     dependencies:
       '@jridgewell/sourcemap-codec':
         specifier: ^1.5.0
@@ -248,6 +233,21 @@ importers:
       metro-transform-worker:
         specifier: ^0.84.3
         version: 0.84.3
+
+  packages/metro-plugin:
+    devDependencies:
+      '@rstest/core':
+        specifier: ^0.9.9
+        version: 0.9.9
+      '@swc/core':
+        specifier: ^1.15.30
+        version: 1.15.30(@swc/helpers@0.5.21)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      '@typescript/native-preview':
+        specifier: ^7.0.0-dev.20260426.1
+        version: 7.0.0-dev.20260426.1
 
   packages/worklets-plugin:
     devDependencies:

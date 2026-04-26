@@ -29,7 +29,7 @@
     },
     "plugins": [
       "expo-router",
-      "react-native-swc",
+      "@react-native-swc/core",
       [
         "expo-splash-screen",
         {

@@ -206,13 +206,20 @@ function expoPrebuildIfNeeded(appDir) {
 }
 
 /**
- * The example apps depend on react-native-swc via `file:../..`, so pnpm
+ * The example apps depend on @react-native-swc/core via `file:../..`, so pnpm
  * stores a hard-linked snapshot that goes stale whenever `dist/` is
  * rebuilt. Re-run `pnpm install` in the example dir to refresh it — this is
  * a no-op when the copy is already current.
  */
 function ensureRnsInstalled(appDir) {
-  const distIndex = path.join(appDir, 'node_modules', 'react-native-swc', 'dist', 'index.js');
+  const distIndex = path.join(
+    appDir,
+    'node_modules',
+    '@react-native-swc',
+    'core',
+    'dist',
+    'index.js',
+  );
   if (existsSync(distIndex)) return;
   sh('pnpm', ['install', '--prefer-offline'], {
     cwd: appDir,

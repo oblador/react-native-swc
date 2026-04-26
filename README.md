@@ -3,7 +3,7 @@
 **SWC-powered transformer for Metro**
 
 [![CI](https://github.com/oblador/react-native-swc/actions/workflows/ci.yml/badge.svg)](https://github.com/oblador/react-native-swc/actions/workflows/ci.yml)
-[![npm (react-native-swc)](https://img.shields.io/npm/v/react-native-swc?label=react-native-swc)](https://www.npmjs.com/package/react-native-swc)
+[![npm (@react-native-swc/core)](https://img.shields.io/npm/v/@react-native-swc/core?label=react-native-swc)](https://www.npmjs.com/package/react-native-swc)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Follow oblador on GitHub](https://img.shields.io/github/followers/oblador?label=Follow%20%40oblador&style=social)](https://img.shields.io/npm/v/@react-native-swc/worklets-plugin?label=%40react-native-swc%2Fworklets-plugin)
 [![Follow trastknast on X](https://img.shields.io/twitter/follow/trastknast?label=Follow%20%40trastknast&style=social)](https://twitter.com/trastknast)
@@ -21,7 +21,7 @@
 ## Install
 
 ```sh
-yarn add -D react-native-swc
+yarn add -D @react-native-swc/core
 ```
 
 If your app uses `react-native-reanimated`:
@@ -34,12 +34,12 @@ yarn add -D @react-native-swc/worklets-plugin
 
 ### Expo (managed / CNG) — config plugin
 
-Add `react-native-swc` to `app.json`:
+Add `@react-native-swc/core` to `app.json`:
 
 ```json
 {
   "expo": {
-    "plugins": ["react-native-swc"]
+    "plugins": ["@react-native-swc/core"]
   }
 }
 ```
@@ -53,7 +53,7 @@ The plugin writes (or updates) a `metro.config.js` wired up to `withSwcTransform
 Disable worklet auto-detection if needed:
 
 ```json
-["react-native-swc", { "worklets": false }]
+["@react-native-swc/core", { "worklets": false }]
 ```
 
 > **Note.** Expo config plugins run only during `expo prebuild` (and `eas build`, which invokes prebuild). Running `expo start` alone does not re-run plugins.
@@ -63,7 +63,7 @@ Disable worklet auto-detection if needed:
 ```js
 // metro.config.js
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
-const { withSwcTransformer } = require('react-native-swc');
+const { withSwcTransformer } = require('@react-native-swc/core');
 
 module.exports = withSwcTransformer(mergeConfig(getDefaultConfig(__dirname), {}));
 ```
@@ -73,9 +73,9 @@ For Expo without the config plugin, swap `@react-native/metro-config` for `expo/
 ```js
 // metro.config.js
 const { getDefaultConfig } = require('expo/metro-config');
-const { withSwcTransformer } = require('react-native-swc');
+const { withSwcTransformer } = require('@react-native-swc/core');
 
-/** @type {import('react-native-swc').SwcTransformerOptions} */
+/** @type {import('@react-native-swc/core').SwcTransformerOptions} */
 const swcConfig = {
   envs: Object.fromEntries(
     Object.entries(process.env).filter(([k, v]) => k.startsWith('EXPO_PUBLIC_')),
@@ -92,9 +92,9 @@ module.exports = withSwcTransformer(getDefaultConfig(__dirname), swcConfig);
 ```js
 // metro.config.js
 const { getDefaultConfig } = require('@react-native/metro-config');
-const { withSwcTransformer } = require('react-native-swc');
+const { withSwcTransformer } = require('@react-native-swc/core');
 
-/** @type {import('react-native-swc').SwcTransformerOptions} */
+/** @type {import('@react-native-swc/core').SwcTransformerOptions} */
 const swcConfig = {
   plugins: [
     [

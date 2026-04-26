@@ -1,6 +1,6 @@
 const path = require('path');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
-const { withSwcTransformer } = require('react-native-swc');
+const { withSwcTransformer } = require('@react-native-swc/core');
 
 /**
  * Metro configuration
