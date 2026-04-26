@@ -7,7 +7,7 @@ Orientation notes for Claude working in this repo. Keep it current.
 This is a pnpm workspace. Root is workspace-only (no published artifact).
 All publishable code lives in [packages/](packages/).
 
-- [packages/react-native-swc/](packages/react-native-swc/) —
+- [packages/core/](packages/core/) —
   The main publishable package: Metro transform worker, minifier, and
   Expo config plugin. Depends on `@react-native-swc/metro-plugin` at
   runtime and resolves its `.wasm` via `require.resolve` when building
@@ -39,7 +39,7 @@ All publishable code lives in [packages/](packages/).
 
 - [.github/workflows/](.github/workflows/) — CI and release pipelines.
   All three packages ship as pure JS/TS + WASM. Release publishes the two plugin
-  packages first, then `react-native-swc` so its `workspace:*` refs
+  packages first, then `@react-native-swc/core` so its `workspace:*` refs
   resolve to already-available npm versions.
 
 ## Building
@@ -47,7 +47,7 @@ All publishable code lives in [packages/](packages/).
 ```sh
 pnpm install
 pnpm -r --filter='./packages/*' run build:wasm   # SWC WASM plugins
-pnpm build:ts                                     # TypeScript (react-native-swc only)
+pnpm build:ts                                     # TypeScript (@react-native-swc/core only)
 ```
 
 The WASM plugins are the only native build outputs; no NAPI addons.
@@ -58,7 +58,7 @@ The WASM plugins are the only native build outputs; no NAPI addons.
 
 ```sh
 pnpm test                                              # every package
-pnpm --filter react-native-swc test                    # transform-worker + hermes + cache-key
+pnpm --filter @react-native-swc/core test              # transform-worker + hermes + cache-key
 pnpm --filter @react-native-swc/metro-plugin test      # isolated per-pass tests
 pnpm --filter @react-native-swc/worklets-plugin test   # ported reanimated tests
 ```
@@ -203,7 +203,7 @@ unless the change is large.
 
 ## Opt-in SWC plugins
 
-`react-native-swc` wires in exactly one built-in SWC WASM plugin
+`@react-native-swc/core` wires in exactly one built-in SWC WASM plugin
 (`@react-native-swc/metro-plugin`, resolved via `require.resolve`).
 Extra plugins — including `@react-native-swc/worklets-plugin`, needed
 by apps using `react-native-reanimated` — are passed through the second
@@ -221,7 +221,7 @@ it (each package's `main` points at its `.wasm`).
 
 Unit tests that exercise worklet transforms via Metro must pass the
 worklets plugin through `baseConfig.swcConfig` (see `baseConfigWithWorklets`
-in [packages/react-native-swc/**tests**/transform-worker.test.ts](packages/react-native-swc/__tests__/transform-worker.test.ts)).
+in [packages/core/**tests**/transform-worker.test.ts](packages/core/__tests__/transform-worker.test.ts)).
 
 ## Rebuilding after Rust changes
 

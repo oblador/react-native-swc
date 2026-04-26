@@ -41,7 +41,7 @@ worklets plugin inside `examples/expo`, restart Metro with
 ```
 react-native-swc/
 ├── packages/
-│   ├── react-native-swc/          ← main package: Metro transform-worker
+│   ├── core/                      ← main package: Metro transform-worker
 │   │   ├── src/                   TypeScript: transform-worker, minifier,
 │   │   │                          codegen, expo-plugin
 │   │   └── __tests__/             Rstest (TS) — worker + hermes + cache-key

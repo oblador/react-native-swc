@@ -58,7 +58,7 @@ The merge view lets you fold the SWC frames to see which of our stages dominates
 `@swc/core` is a NAPI module compiled by SWC upstream. We don't control its build but we do control how often we call into it. Treat the SWC native frames as opaque cost centres in `samply` and focus on call counts:
 
 - Each SWC `transformSync` is one parse + multiple visits + one codegen. If you see two `transformSync` frames per file in the flamegraph, that's a redundant pass on our side.
-- Each `parseSync` is one parse, no codegen. We have one in [src/dependencies.ts](../packages/react-native-swc/src/dependencies.ts) (`collectRequireRefs`). If it shows twice per file, that's the double-parse described in the dependencies-rewrite section.
+- Each `parseSync` is one parse, no codegen. We have one in [src/dependencies.ts](../packages/core/src/dependencies.ts) (`collectRequireRefs`). If it shows twice per file, that's the double-parse described in the dependencies-rewrite section.
 - `minifySync` is parse + mangle + codegen. Only fires when `minify: true`.
 
 To verify a JS-side hypothesis (e.g. "we parse twice on this file shape"), instrument with a counter and re-bench rather than re-profiling:

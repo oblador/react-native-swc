@@ -2111,7 +2111,7 @@ describe('swc worklets plugin', () => {
 
     // Class polyfill / class-factory injection into worklet closures is
     // handled by the outer SWC transform (`HERMES_ENV_INCLUDE` in
-    // `react-native-swc/src/swc.ts` runs `transform-classes` etc.), not by
+    // `@react-native-swc/core/src/swc.ts` runs `transform-classes` etc.), not by
     // this plugin — so the upstream Reanimated tests that exercise Babel's
     // mid-transform class pipeline don't map onto our architecture.
 
