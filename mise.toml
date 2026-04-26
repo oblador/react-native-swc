@@ -1,0 +1,13 @@
+[tools]
+
+node = "25.9.0"
+rust = "stable"
+ruby = "3.4.9"
+java = "openjdk-17"
+"gem:bundler" = "latest"
+"aqua:sharkdp/hyperfine" = "latest"
+hk = "latest"
+pkl = "latest"
+
+[settings.ruby]
+compile = false

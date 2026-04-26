@@ -1,0 +1,17 @@
+{
+  "semi": true,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "tabWidth": 2,
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "target",
+    "pnpm-lock.yaml",
+    "**/*.wasm",
+    "**/*.xcassets/**/Contents.json",
+    "examples/bluesky",
+    "packages/*/crates/**/*.rs",
+    "**/__snapshots__"
+  ]
+}

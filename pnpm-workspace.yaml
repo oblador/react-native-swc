@@ -1,0 +1,13 @@
+packages:
+  - 'examples/expo'
+  - 'examples/vanilla'
+  - 'packages/*'
+
+# `packages/*/npm/*` entries are scaffolded at release time by
+# `napi create-npm-dirs`; they are not workspace packages during local dev.
+
+allowBuilds:
+  '@swc/core': false
+  unrs-resolver: false
+
+nodeLinker: 'hoisted'

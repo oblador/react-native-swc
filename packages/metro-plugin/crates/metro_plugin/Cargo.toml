@@ -1,0 +1,54 @@
+[package]
+name = "metro_plugin"
+version = "0.1.0"
+edition = "2021"
+autobenches = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+bench = false
+
+[dependencies]
+swc_core = { version = "63", features = [
+  "ecma_ast",
+  "ecma_visit",
+  "ecma_utils",
+  "ecma_parser",
+  "ecma_codegen",
+  "ecma_plugin_transform",
+  "ecma_transforms",
+] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+rustc-hash = "2"
+
+[dev-dependencies]
+swc_core = { version = "63", features = [
+  "ecma_ast",
+  "ecma_visit",
+  "ecma_utils",
+  "ecma_parser",
+  "ecma_codegen",
+  "ecma_transforms",
+] }
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+
+[[bench]]
+name = "experimental_imports"
+harness = false
+
+[[bench]]
+name = "inline"
+harness = false
+
+[[bench]]
+name = "inline_requires"
+harness = false
+
+[[bench]]
+name = "constant_folding"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false

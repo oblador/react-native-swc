@@ -1,0 +1,48 @@
+{
+  "name": "@react-native-swc/worklets-plugin",
+  "version": "0.1.0",
+  "description": "SWC plugin that workletizes `'worklet'`-tagged functions for react-native-reanimated / react-native-worklets.",
+  "keywords": [
+    "react-native",
+    "reanimated",
+    "swc",
+    "worklets"
+  ],
+  "homepage": "https://github.com/oblador/react-native-swc#readme",
+  "bugs": {
+    "url": "https://github.com/oblador/react-native-swc/issues"
+  },
+  "license": "MIT",
+  "author": "Joel Arvidsson",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oblador/react-native-swc.git",
+    "directory": "packages/worklets-plugin"
+  },
+  "files": [
+    "worklets.wasm",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./worklets.wasm",
+  "exports": {
+    ".": "./worklets.wasm",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "pnpm build:wasm",
+    "build:wasm": "cargo build --target wasm32-wasip1 --release --manifest-path crates/worklets/Cargo.toml && cp ../../target/wasm32-wasip1/release/worklets.wasm ./worklets.wasm",
+    "clean": "rm -f worklets.wasm",
+    "test": "rstest run",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@rstest/core": "^0.9.9",
+    "@swc/core": "^1.15.30",
+    "@types/node": "^22.0.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260426.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,126 @@
+use std::collections::HashSet;
+
+use once_cell::sync::Lazy;
+
+/// Identifiers that are never captured as closure variables.
+/// Based on MDN global objects list plus React Native / Hermes globals.
+pub static DEFAULT_GLOBALS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    let mut s = HashSet::new();
+    for g in GLOBAL_IDENTIFIERS {
+        s.insert(*g);
+    }
+    s
+});
+
+const GLOBAL_IDENTIFIERS: &[&str] = &[
+    // Value properties
+    "globalThis",
+    "Infinity",
+    "NaN",
+    "undefined",
+    // Function properties
+    "eval",
+    "isFinite",
+    "isNaN",
+    "parseFloat",
+    "parseInt",
+    "decodeURI",
+    "decodeURIComponent",
+    "encodeURI",
+    "encodeURIComponent",
+    "escape",
+    "unescape",
+    // Fundamental objects
+    "Object",
+    "Function",
+    "Boolean",
+    "Symbol",
+    // Error objects
+    "Error",
+    "AggregateError",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "InternalError",
+    // Numbers and dates
+    "Number",
+    "BigInt",
+    "Math",
+    "Date",
+    // Text processing
+    "String",
+    "RegExp",
+    // Indexed collections
+    "Array",
+    "Int8Array",
+    "Uint8Array",
+    "Uint8ClampedArray",
+    "Int16Array",
+    "Uint16Array",
+    "Int32Array",
+    "Uint32Array",
+    "BigInt64Array",
+    "BigUint64Array",
+    "Float32Array",
+    "Float64Array",
+    // Keyed collections
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    // Structured data
+    "ArrayBuffer",
+    "SharedArrayBuffer",
+    "DataView",
+    "Atomics",
+    "JSON",
+    // Managing memory
+    "WeakRef",
+    "FinalizationRegistry",
+    // Control abstraction objects
+    "Iterator",
+    "AsyncIterator",
+    "Promise",
+    "GeneratorFunction",
+    "AsyncGeneratorFunction",
+    "Generator",
+    "AsyncGenerator",
+    "AsyncFunction",
+    // Reflection
+    "Reflect",
+    "Proxy",
+    // Internationalization
+    "Intl",
+    // Other stuff
+    "null",
+    "this",
+    "global",
+    "window",
+    "self",
+    "console",
+    "performance",
+    "arguments",
+    "require",
+    "fetch",
+    "XMLHttpRequest",
+    "WebSocket",
+    // Run loop
+    "queueMicrotask",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "setTimeout",
+    "clearTimeout",
+    "setImmediate",
+    "clearImmediate",
+    "setInterval",
+    "clearInterval",
+    // Hermes
+    "HermesInternal",
+    // Worklets
+    "_WORKLET",
+    // Deprecated
+    "_IS_FABRIC",
+];

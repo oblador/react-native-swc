@@ -1,0 +1,66 @@
+amends "package://github.com/jdx/hk/releases/download/v1.44.1/hk@1.44.1#/Config.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["oxfmt"] {
+    glob = List(
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.cjs",
+      "**/*.mjs",
+      "**/*.cts",
+      "**/*.mts",
+      "**/*.json",
+      "**/*.md",
+    )
+    exclude = List(
+      "**/*.wasm",
+      "**/*.xcassets/**/Contents.json",
+      "examples/bluesky/**",
+      "**/__snapshots__/**",
+      "pnpm-lock.yaml",
+    )
+    check = "pnpm exec oxfmt --check {{files}}"
+    fix = "pnpm exec oxfmt {{files}}"
+    batch = true
+    stage = List("**/*")
+  }
+  ["cargo-fmt"] {
+    glob = List("**/*.rs")
+    check = "cargo fmt --all --check"
+    fix = "cargo fmt --all"
+    stomp = true
+  }
+  ["cargo-clippy"] {
+    glob = List("**/*.rs", "**/Cargo.toml", "Cargo.lock")
+    check = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+    stomp = true
+  }
+  ["typecheck"] {
+    glob = List("**/*.ts", "**/*.tsx", "**/tsconfig*.json", "**/package.json")
+    exclude = List(
+      "examples/bluesky/**"
+    )
+    check = "pnpm typecheck"
+    stomp = true
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["pre-push"] {
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}

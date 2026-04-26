@@ -1,0 +1,44 @@
+[package]
+name = "worklets"
+version = "0.1.0"
+edition = "2021"
+autobenches = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+bench = false
+
+[dependencies]
+swc_core = { version = "63", features = [
+  "ecma_ast",
+  "ecma_visit",
+  "ecma_utils",
+  "ecma_parser",
+  "ecma_codegen",
+  "ecma_plugin_transform",
+  "common_sourcemap",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+indexmap = "2"
+once_cell = "1"
+rustc-hash = "2"
+
+[dev-dependencies]
+swc_core = { version = "63", features = [
+  "ecma_ast",
+  "ecma_visit",
+  "ecma_utils",
+  "ecma_parser",
+  "ecma_codegen",
+  "common_sourcemap",
+] }
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+
+[[bench]]
+name = "plugin"
+harness = false
+
+[[bench]]
+name = "closure"
+harness = false

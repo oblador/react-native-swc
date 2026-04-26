@@ -1,0 +1,37 @@
+{
+  "name": "react-native-swc-monorepo",
+  "private": true,
+  "description": "Monorepo root for react-native-swc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oblador/react-native-swc.git"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter='./packages/*' run build",
+    "build:ts": "pnpm -r --filter='./packages/*' run build:ts",
+    "build:native": "pnpm -r --filter='./packages/*' run build:native",
+    "build:wasm": "pnpm -r --filter='./packages/*' run build:wasm",
+    "test": "pnpm -r --filter='./packages/*' run test",
+    "test:e2e": "rstest run --config e2e/rstest.config.mts",
+    "typecheck": "pnpm -r --filter='./packages/*' run typecheck",
+    "lint": "pnpm -r --filter='./packages/*' run lint",
+    "format": "oxfmt . && cargo fmt --all",
+    "format:check": "oxfmt --check . && cargo fmt --all --check",
+    "bench": "node --experimental-strip-types benchmarks/transform.ts",
+    "bench:compare": "./benchmarks/bench.sh",
+    "clean": "pnpm -r --filter='./packages/*' run clean && rm -rf target",
+    "prepare": "mise exec -- hk install --mise 2>/dev/null || hk install --mise 2>/dev/null || true"
+  },
+  "devDependencies": {
+    "@rstest/core": "^0.9.9",
+    "@swc/core": "^1.15.30",
+    "@types/node": "^22.0.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260426.1",
+    "oxfmt": "^0.45.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8"
+}

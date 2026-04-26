@@ -1,0 +1,94 @@
+{
+  "name": "react-native-swc",
+  "version": "0.1.0",
+  "description": "SWC-powered Metro transformer for fast React Native transpilation",
+  "keywords": [
+    "bundler",
+    "flow",
+    "jsx",
+    "metro",
+    "react-native",
+    "swc",
+    "transformer",
+    "typescript"
+  ],
+  "homepage": "https://github.com/oblador/react-native-swc#readme",
+  "bugs": {
+    "url": "https://github.com/oblador/react-native-swc/issues"
+  },
+  "license": "MIT",
+  "author": "Joel Arvidsson",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oblador/react-native-swc.git",
+    "directory": "packages/react-native-swc"
+  },
+  "files": [
+    "dist",
+    "app.plugin.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./transform-worker": {
+      "types": "./dist/transform-worker.d.ts",
+      "require": "./dist/transform-worker.js",
+      "default": "./dist/transform-worker.js"
+    },
+    "./minifier": {
+      "types": "./dist/minifier.d.ts",
+      "require": "./dist/minifier.js",
+      "default": "./dist/minifier.js"
+    },
+    "./expo-plugin": {
+      "types": "./dist/expo-plugin.d.ts",
+      "require": "./dist/expo-plugin.js",
+      "default": "./dist/expo-plugin.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "dev": "tsgo --watch",
+    "build": "pnpm build:ts",
+    "build:ts": "tsgo --build tsconfig.build.json",
+    "clean": "rm -rf dist tsconfig.build.tsbuildinfo",
+    "test": "rstest run",
+    "typecheck": "tsgo --noEmit",
+    "prepublishOnly": "pnpm build:ts"
+  },
+  "dependencies": {
+    "@jridgewell/sourcemap-codec": "^1.5.0",
+    "@react-native-swc/metro-plugin": "workspace:*",
+    "@swc/core": "^1.15.30"
+  },
+  "devDependencies": {
+    "@babel/core": ">=7.20.0",
+    "@expo/config-plugins": "^54.0.0",
+    "@react-native-swc/worklets-plugin": "workspace:*",
+    "@rstest/core": "^0.9.9",
+    "@types/node": "^22.0.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260426.1",
+    "metro-config": "^0.84.3",
+    "metro-transform-worker": "^0.84.3"
+  },
+  "peerDependencies": {
+    "@expo/config-plugins": ">=50.0.0",
+    "react-native": ">=0.74.0"
+  },
+  "peerDependenciesMeta": {
+    "@expo/config-plugins": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
