@@ -1,9 +1,9 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use swc_core::atoms::Atom;
 use swc_core::common::util::take::Take;
 use swc_core::common::DUMMY_SP;
 use swc_core::ecma::ast::*;
-use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 // ---------------------------------------------------------------------------
 // Evaluated value
@@ -88,29 +88,39 @@ fn eval_lit(lit: &Lit) -> Option<Value> {
     }
 }
 
-fn eval_expr(expr: &Expr, bindings: &FxHashMap<Atom, Value>) -> Option<Value> {
+/// Evaluate `expr` to a literal `Value`, returning `None` if the expression
+/// contains anything we can't statically reduce.
+///
+/// Identifier references — `var`/`let`/`const` bindings — are NOT evaluated.
+/// A previous version of this pass tracked them in a process-global hashmap
+/// without scope or use-def analysis, which miscompiled real code: an inner
+/// `var TotalLanes = <huge>` in one function leaked out and got folded into
+/// another function's `i < TotalLanes` loop test, producing infinite loops
+/// and multi-hundred-million-element array allocations in React's production
+/// build. Babel-style scope-aware `path.evaluate()` would be the correct
+/// fix; until then, this pass leans on the SWC `optimizer.globals` pass
+/// (which runs before us and inlines `__DEV__` / `process.env.NODE_ENV`
+/// directly into expressions) plus the minifier afterwards.
+fn eval_expr(expr: &Expr) -> Option<Value> {
     match expr {
         Expr::Lit(lit) => eval_lit(lit),
         Expr::Ident(id) => match id.sym.as_ref() {
             "undefined" => Some(Value::Undefined),
             "NaN" => Some(Value::Number(f64::NAN)),
-            // Atom doesn't impl Borrow<str>, so we look up by &Atom directly
-            // — no allocation, hash precomputed.
-            _ => bindings.get(&id.sym).cloned(),
+            _ => None,
         },
-        Expr::Paren(p) => eval_expr(&p.expr, bindings),
-        Expr::Unary(u) => eval_unary(u, bindings),
-        Expr::Bin(b) => eval_binary(b, bindings),
-        // void <literal> → undefined; void <side-effectful> → None
+        Expr::Paren(p) => eval_expr(&p.expr),
+        Expr::Unary(u) => eval_unary(u),
+        Expr::Bin(b) => eval_binary(b),
         _ => None,
     }
 }
 
-fn eval_unary(u: &UnaryExpr, bindings: &FxHashMap<Atom, Value>) -> Option<Value> {
+fn eval_unary(u: &UnaryExpr) -> Option<Value> {
     match u.op {
         UnaryOp::Void => {
             // `void 0`, `void <literal>` → undefined; side-effectful → None
-            match eval_expr(&u.arg, bindings) {
+            match eval_expr(&u.arg) {
                 Some(_) => {
                     // only safe to fold if the arg has no side effects
                     if is_pure(&u.arg) {
@@ -123,14 +133,14 @@ fn eval_unary(u: &UnaryExpr, bindings: &FxHashMap<Atom, Value>) -> Option<Value>
             }
         }
         UnaryOp::Bang => {
-            let v = eval_expr(&u.arg, bindings)?;
+            let v = eval_expr(&u.arg)?;
             Some(Value::Bool(!v.is_truthy()))
         }
-        UnaryOp::Minus => match eval_expr(&u.arg, bindings)? {
+        UnaryOp::Minus => match eval_expr(&u.arg)? {
             Value::Number(n) => Some(Value::Number(-n)),
             _ => None,
         },
-        UnaryOp::Plus => match eval_expr(&u.arg, bindings)? {
+        UnaryOp::Plus => match eval_expr(&u.arg)? {
             Value::Number(n) => Some(Value::Number(n)),
             _ => None,
         },
@@ -150,28 +160,28 @@ fn is_pure(expr: &Expr) -> bool {
     }
 }
 
-fn eval_binary(b: &BinExpr, bindings: &FxHashMap<Atom, Value>) -> Option<Value> {
+fn eval_binary(b: &BinExpr) -> Option<Value> {
     use BinaryOp::*;
 
     // For logical operators (&&, ||, ??), we only need the left side.
     match b.op {
         LogicalAnd => {
-            let left = eval_expr(&b.left, bindings)?;
+            let left = eval_expr(&b.left)?;
             return if left.is_truthy() { None } else { Some(left) };
         }
         LogicalOr => {
-            let left = eval_expr(&b.left, bindings)?;
+            let left = eval_expr(&b.left)?;
             return if left.is_truthy() { Some(left) } else { None };
         }
         NullishCoalescing => {
-            let left = eval_expr(&b.left, bindings)?;
+            let left = eval_expr(&b.left)?;
             return if left.is_nullish() { None } else { Some(left) };
         }
         _ => {}
     }
 
-    let lv = eval_expr(&b.left, bindings)?;
-    let rv = eval_expr(&b.right, bindings)?;
+    let lv = eval_expr(&b.left)?;
+    let rv = eval_expr(&b.right)?;
 
     match b.op {
         EqEq => Some(Value::Bool(loose_eq(&lv, &rv))),
@@ -248,131 +258,265 @@ fn num_cmp(a: &Value, b: &Value, f: impl Fn(f64, f64) -> bool) -> Option<Value> 
 // ---------------------------------------------------------------------------
 // Dead-code / unused-function helpers
 // ---------------------------------------------------------------------------
+//
+// `RefCollector` is a comprehensive identifier visitor used by the
+// unused-function pass below. The earlier hand-rolled walk only handled a
+// curated subset of expression shapes (`Expr::Bin`, `Expr::Call`, `Expr::Tpl`,
+// …) and silently skipped everything else — most importantly `Expr::Object`,
+// which made `function f() {}` look unreferenced when its only call sites lived
+// inside an object literal (e.g. `global.console = { error: f() }`). Instead of
+// chasing each missing variant, defer to SWC's `Visit` traversal and only
+// suppress contexts where an `Ident` is NOT a reference: member-access
+// property names, object/class property keys, and crucially binding sites
+// (declaration names, parameter names, var declarator names — patterns).
+//
+// Over-approximation is safe (we only ever remove a function when it has
+// zero collected references); under-approximation is not — missing a real
+// reference would silently delete code, which is exactly the bug this
+// rewrite is fixing.
+struct RefCollector<'a> {
+    refs: &'a mut FxHashSet<Atom>,
+}
 
-fn collect_refs_in_stmts(stmts: &[Stmt], refs: &mut FxHashSet<Atom>) {
-    for s in stmts {
-        collect_refs_in_stmt(s, refs);
+impl RefCollector<'_> {
+    /// Walk a binding pattern, descending only into reference-bearing
+    /// sub-positions: default values (`{a = expr}`, `[a = expr]`, `x = expr`),
+    /// computed property keys, and assignment-target expressions. Pattern
+    /// idents themselves are bindings and skipped.
+    fn visit_pat_refs(&mut self, pat: &Pat) {
+        match pat {
+            Pat::Ident(_) | Pat::Invalid(_) => {}
+            Pat::Array(a) => {
+                for elem in a.elems.iter().flatten() {
+                    self.visit_pat_refs(elem);
+                }
+            }
+            Pat::Object(o) => {
+                for prop in &o.props {
+                    match prop {
+                        ObjectPatProp::KeyValue(kv) => {
+                            if let PropName::Computed(c) = &kv.key {
+                                c.expr.visit_with(self);
+                            }
+                            self.visit_pat_refs(&kv.value);
+                        }
+                        ObjectPatProp::Assign(a) => {
+                            if let Some(value) = &a.value {
+                                value.visit_with(self);
+                            }
+                        }
+                        ObjectPatProp::Rest(r) => self.visit_pat_refs(&r.arg),
+                    }
+                }
+            }
+            Pat::Rest(r) => self.visit_pat_refs(&r.arg),
+            Pat::Assign(a) => {
+                self.visit_pat_refs(&a.left);
+                a.right.visit_with(self);
+            }
+            // `Pat::Expr` only appears in assignment-target positions
+            // (`[obj.foo] = …`); its content IS a reference.
+            Pat::Expr(e) => e.visit_with(self),
+        }
+    }
+}
+
+impl Visit for RefCollector<'_> {
+    fn visit_ident(&mut self, n: &Ident) {
+        self.refs.insert(n.sym.clone());
+    }
+
+    // ---- Binding sites: skip the binding ident, walk other sub-nodes ----
+
+    fn visit_fn_decl(&mut self, n: &FnDecl) {
+        n.function.visit_with(self);
+    }
+
+    fn visit_class_decl(&mut self, n: &ClassDecl) {
+        n.class.visit_with(self);
+    }
+
+    // FnExpr's optional name binds inside its own body for self-reference;
+    // for unused-function analysis we only care about references from
+    // *outside* the function, so the FnExpr ident is treated as a binding.
+    fn visit_fn_expr(&mut self, n: &FnExpr) {
+        n.function.visit_with(self);
+    }
+
+    fn visit_class_expr(&mut self, n: &ClassExpr) {
+        n.class.visit_with(self);
+    }
+
+    fn visit_var_declarator(&mut self, n: &VarDeclarator) {
+        self.visit_pat_refs(&n.name);
+        if let Some(init) = &n.init {
+            init.visit_with(self);
+        }
+    }
+
+    fn visit_param(&mut self, n: &Param) {
+        for d in &n.decorators {
+            d.visit_with(self);
+        }
+        self.visit_pat_refs(&n.pat);
+    }
+
+    fn visit_arrow_expr(&mut self, n: &ArrowExpr) {
+        for p in &n.params {
+            self.visit_pat_refs(p);
+        }
+        n.body.visit_with(self);
+    }
+
+    fn visit_catch_clause(&mut self, n: &CatchClause) {
+        if let Some(param) = &n.param {
+            self.visit_pat_refs(param);
+        }
+        n.body.visit_with(self);
+    }
+
+    fn visit_for_in_stmt(&mut self, n: &ForInStmt) {
+        self.visit_for_head(&n.left);
+        n.right.visit_with(self);
+        n.body.visit_with(self);
+    }
+
+    fn visit_for_of_stmt(&mut self, n: &ForOfStmt) {
+        self.visit_for_head(&n.left);
+        n.right.visit_with(self);
+        n.body.visit_with(self);
+    }
+
+    // Import bindings are declarations — skip the local idents.
+    fn visit_import_decl(&mut self, _: &ImportDecl) {}
+
+    // Export-as renames: only the *referenced* identifier matters.
+    fn visit_export_named_specifier(&mut self, n: &ExportNamedSpecifier) {
+        if let ModuleExportName::Ident(id) = &n.orig {
+            self.refs.insert(id.sym.clone());
+        }
+    }
+
+    // ---- Property names ARE NOT references ----
+
+    fn visit_member_expr(&mut self, n: &MemberExpr) {
+        n.obj.visit_with(self);
+        if let MemberProp::Computed(c) = &n.prop {
+            c.expr.visit_with(self);
+        }
+    }
+
+    fn visit_super_prop_expr(&mut self, n: &SuperPropExpr) {
+        if let SuperProp::Computed(c) = &n.prop {
+            c.expr.visit_with(self);
+        }
+    }
+
+    fn visit_prop(&mut self, n: &Prop) {
+        match n {
+            // `{foo}` desugars to `{foo: foo}` — the value IS a reference.
+            Prop::Shorthand(id) => {
+                self.refs.insert(id.sym.clone());
+            }
+            Prop::KeyValue(kv) => {
+                if let PropName::Computed(c) = &kv.key {
+                    c.expr.visit_with(self);
+                }
+                kv.value.visit_with(self);
+            }
+            Prop::Assign(a) => {
+                a.value.visit_with(self);
+            }
+            Prop::Getter(g) => {
+                if let PropName::Computed(c) = &g.key {
+                    c.expr.visit_with(self);
+                }
+                g.body.visit_with(self);
+            }
+            Prop::Setter(s) => {
+                if let PropName::Computed(c) = &s.key {
+                    c.expr.visit_with(self);
+                }
+                self.visit_pat_refs(&s.param);
+                s.body.visit_with(self);
+            }
+            Prop::Method(m) => {
+                if let PropName::Computed(c) = &m.key {
+                    c.expr.visit_with(self);
+                }
+                m.function.visit_with(self);
+            }
+        }
+    }
+
+    fn visit_class_member(&mut self, n: &ClassMember) {
+        match n {
+            ClassMember::Method(m) => {
+                if let PropName::Computed(c) = &m.key {
+                    c.expr.visit_with(self);
+                }
+                m.function.visit_with(self);
+            }
+            ClassMember::PrivateMethod(m) => m.function.visit_with(self),
+            ClassMember::ClassProp(p) => {
+                if let PropName::Computed(c) = &p.key {
+                    c.expr.visit_with(self);
+                }
+                if let Some(value) = &p.value {
+                    value.visit_with(self);
+                }
+            }
+            ClassMember::PrivateProp(p) => {
+                if let Some(value) = &p.value {
+                    value.visit_with(self);
+                }
+            }
+            ClassMember::AutoAccessor(a) => {
+                if let Key::Public(PropName::Computed(c)) = &a.key {
+                    c.expr.visit_with(self);
+                }
+                if let Some(value) = &a.value {
+                    value.visit_with(self);
+                }
+            }
+            _ => n.visit_children_with(self),
+        }
+    }
+
+    fn visit_jsx_attr(&mut self, n: &JSXAttr) {
+        if let Some(v) = &n.value {
+            v.visit_with(self);
+        }
+    }
+}
+
+impl RefCollector<'_> {
+    fn visit_for_head(&mut self, head: &ForHead) {
+        match head {
+            ForHead::VarDecl(vd) => {
+                for d in &vd.decls {
+                    self.visit_pat_refs(&d.name);
+                    if let Some(init) = &d.init {
+                        init.visit_with(self);
+                    }
+                }
+            }
+            ForHead::Pat(p) => self.visit_pat_refs(p),
+            ForHead::UsingDecl(u) => {
+                for d in &u.decls {
+                    self.visit_pat_refs(&d.name);
+                    if let Some(init) = &d.init {
+                        init.visit_with(self);
+                    }
+                }
+            }
+        }
     }
 }
 
 fn collect_refs_in_stmt(stmt: &Stmt, refs: &mut FxHashSet<Atom>) {
-    match stmt {
-        Stmt::Expr(e) => collect_refs_in_expr(&e.expr, refs),
-        Stmt::Block(b) => collect_refs_in_stmts(&b.stmts, refs),
-        Stmt::Return(r) => {
-            if let Some(arg) = &r.arg {
-                collect_refs_in_expr(arg, refs);
-            }
-        }
-        Stmt::If(i) => {
-            collect_refs_in_expr(&i.test, refs);
-            collect_refs_in_stmt(&i.cons, refs);
-            if let Some(alt) = &i.alt {
-                collect_refs_in_stmt(alt, refs);
-            }
-        }
-        Stmt::Decl(d) => collect_refs_in_decl(d, refs),
-        Stmt::While(w) => {
-            collect_refs_in_expr(&w.test, refs);
-            collect_refs_in_stmt(&w.body, refs);
-        }
-        Stmt::For(f) => {
-            if let Some(init) = &f.init {
-                match init {
-                    VarDeclOrExpr::Expr(e) => collect_refs_in_expr(e, refs),
-                    VarDeclOrExpr::VarDecl(vd) => collect_refs_in_var_decl(vd, refs),
-                }
-            }
-            if let Some(test) = &f.test {
-                collect_refs_in_expr(test, refs);
-            }
-            if let Some(update) = &f.update {
-                collect_refs_in_expr(update, refs);
-            }
-            collect_refs_in_stmt(&f.body, refs);
-        }
-        Stmt::Throw(t) => collect_refs_in_expr(&t.arg, refs),
-        _ => {}
-    }
-}
-
-fn collect_refs_in_decl(decl: &Decl, refs: &mut FxHashSet<Atom>) {
-    match decl {
-        Decl::Var(vd) => collect_refs_in_var_decl(vd, refs),
-        Decl::Fn(fd) => {
-            if let Some(body) = &fd.function.body {
-                collect_refs_in_stmts(&body.stmts, refs);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_refs_in_var_decl(vd: &VarDecl, refs: &mut FxHashSet<Atom>) {
-    for d in &vd.decls {
-        if let Some(init) = &d.init {
-            collect_refs_in_expr(init, refs);
-        }
-    }
-}
-
-fn collect_refs_in_expr(expr: &Expr, refs: &mut FxHashSet<Atom>) {
-    match expr {
-        Expr::Ident(id) => {
-            refs.insert(id.sym.clone());
-        }
-        Expr::Call(c) => {
-            collect_refs_in_callee(&c.callee, refs);
-            for arg in &c.args {
-                collect_refs_in_expr(&arg.expr, refs);
-            }
-        }
-        Expr::Fn(f) => {
-            if let Some(body) = &f.function.body {
-                collect_refs_in_stmts(&body.stmts, refs);
-            }
-        }
-        Expr::Arrow(a) => match &*a.body {
-            BlockStmtOrExpr::BlockStmt(b) => collect_refs_in_stmts(&b.stmts, refs),
-            BlockStmtOrExpr::Expr(e) => collect_refs_in_expr(e, refs),
-        },
-        Expr::Paren(p) => collect_refs_in_expr(&p.expr, refs),
-        Expr::Assign(a) => {
-            collect_refs_in_assignee(&a.left, refs);
-            collect_refs_in_expr(&a.right, refs);
-        }
-        Expr::Bin(b) => {
-            collect_refs_in_expr(&b.left, refs);
-            collect_refs_in_expr(&b.right, refs);
-        }
-        Expr::Unary(u) => collect_refs_in_expr(&u.arg, refs),
-        Expr::Member(m) => {
-            collect_refs_in_expr(&m.obj, refs);
-        }
-        Expr::Seq(s) => {
-            for e in &s.exprs {
-                collect_refs_in_expr(e, refs);
-            }
-        }
-        Expr::Tpl(t) => {
-            for e in &t.exprs {
-                collect_refs_in_expr(e, refs);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_refs_in_callee(callee: &Callee, refs: &mut FxHashSet<Atom>) {
-    if let Callee::Expr(e) = callee {
-        collect_refs_in_expr(e, refs)
-    }
-}
-
-fn collect_refs_in_assignee(left: &AssignTarget, refs: &mut FxHashSet<Atom>) {
-    if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = left {
-        refs.insert(id.id.sym.clone());
-    }
+    let mut c = RefCollector { refs };
+    stmt.visit_with(&mut c);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,8 +538,6 @@ pub fn constant_folding(program: &mut Program) {
 
 #[derive(Default)]
 struct ConstantFolder {
-    /// Tracks `var/const/let x = <literal>` bindings for variable folding.
-    bindings: FxHashMap<Atom, Value>,
     /// Set to true whenever a change is made (drives the outer loop).
     stripped: bool,
 }
@@ -419,7 +561,7 @@ impl ConstantFolder {
                 // fold when only the left side is known
                 match b.op {
                     LogicalAnd => {
-                        if let Some(lv) = eval_expr(&b.left, &self.bindings) {
+                        if let Some(lv) = eval_expr(&b.left) {
                             if !lv.is_truthy() {
                                 // false && anything → left
                                 *expr = *b.left.take();
@@ -432,7 +574,7 @@ impl ConstantFolder {
                         }
                     }
                     LogicalOr => {
-                        if let Some(lv) = eval_expr(&b.left, &self.bindings) {
+                        if let Some(lv) = eval_expr(&b.left) {
                             if lv.is_truthy() {
                                 // "truthy" || anything → left
                                 *expr = *b.left.take();
@@ -445,7 +587,7 @@ impl ConstantFolder {
                         }
                     }
                     NullishCoalescing => {
-                        if let Some(lv) = eval_expr(&b.left, &self.bindings) {
+                        if let Some(lv) = eval_expr(&b.left) {
                             if lv.is_nullish() {
                                 // null ?? right → right
                                 *expr = *b.right.take();
@@ -459,7 +601,7 @@ impl ConstantFolder {
                     }
                     _ => {
                         // Regular binary: need both sides
-                        if let Some(val) = eval_binary(b, &self.bindings) {
+                        if let Some(val) = eval_binary(b) {
                             *expr = val.to_expr();
                             self.stripped = true;
                         }
@@ -467,7 +609,7 @@ impl ConstantFolder {
                 }
             }
             Expr::Unary(u) => {
-                if let Some(val) = eval_unary(u, &self.bindings) {
+                if let Some(val) = eval_unary(u) {
                     let new_expr = val.to_expr();
                     // Only replace if we're actually simplifying — avoid infinite loops
                     // where e.g. -1 → UnaryExpr(Minus, 1) → -1 → ... forever.
@@ -478,7 +620,7 @@ impl ConstantFolder {
                 }
             }
             Expr::Cond(c) => {
-                if let Some(test_val) = eval_expr(&c.test, &self.bindings) {
+                if let Some(test_val) = eval_expr(&c.test) {
                     *expr = if test_val.is_truthy() {
                         *c.cons.take()
                     } else {
@@ -493,20 +635,6 @@ impl ConstantFolder {
 }
 
 impl VisitMut for ConstantFolder {
-    // Collect var/const/let bindings with literal inits (for variable-tracking).
-    fn visit_mut_var_decl(&mut self, n: &mut VarDecl) {
-        n.visit_mut_children_with(self);
-        for d in &n.decls {
-            if let Pat::Ident(bi) = &d.name {
-                if let Some(init) = &d.init {
-                    if let Some(val) = eval_expr(init, &self.bindings) {
-                        self.bindings.insert(bi.id.sym.clone(), val);
-                    }
-                }
-            }
-        }
-    }
-
     // Fold expressions post-order: children first, then this node.
     fn visit_mut_expr(&mut self, expr: &mut Expr) {
         expr.visit_mut_children_with(self);
@@ -519,7 +647,7 @@ impl VisitMut for ConstantFolder {
         stmt.visit_mut_children_with(self);
 
         if let Stmt::If(if_stmt) = stmt {
-            if let Some(test_val) = eval_expr(&if_stmt.test, &self.bindings) {
+            if let Some(test_val) = eval_expr(&if_stmt.test) {
                 self.stripped = true;
                 if test_val.is_truthy() {
                     *stmt = *if_stmt.cons.take();
@@ -553,11 +681,18 @@ impl VisitMut for ConstantFolder {
 }
 
 fn remove_unreferenced_fns_from_module(items: &mut Vec<ModuleItem>, stripped: &mut bool) {
-    // Collect references across the whole item list
+    // Collect references across the whole item list — INCLUDING `ModuleDecl`
+    // siblings. SWC plugins run before the ESM→CJS transform, so a top-level
+    // `function foo() {}` paired with `export default foo;` shows up as
+    // `Stmt::Decl(Decl::Fn)` next to a `ModuleDecl::ExportDefaultExpr` whose
+    // expression is the only reference to `foo`. Walking only `Stmt` items
+    // would miss that reference and silently delete the function declaration,
+    // leaving the post-CJS `var _default = foo` pointing at nothing.
     let mut refs: FxHashSet<Atom> = FxHashSet::default();
-    for item in items.iter() {
-        if let ModuleItem::Stmt(s) = item {
-            collect_refs_in_stmt(s, &mut refs);
+    {
+        let mut c = RefCollector { refs: &mut refs };
+        for item in items.iter() {
+            item.visit_with(&mut c);
         }
     }
     items.retain(|item| {
