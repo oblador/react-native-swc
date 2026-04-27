@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use rustc_hash::FxHashSet;
 use swc_core::atoms::Atom;
 use swc_core::common::source_map::DefaultSourceMapGenConfig;
-use swc_core::common::{sync::Lrc, BytePos, LineCol, SourceMap, DUMMY_SP};
+use swc_core::common::{sync::Lrc, BytePos, LineCol, SourceMap, SyntaxContext, DUMMY_SP};
 use swc_core::ecma::ast::*;
 use swc_core::ecma::codegen::{text_writer::JsWriter, Config as EmitConfig, Emitter};
 use swc_core::ecma::visit::{Visit, VisitMut, VisitMutWith, VisitWith};
@@ -185,25 +185,40 @@ impl WorkletsPlugin {
         &mut self,
         func_name: Option<&str>,
         params: Vec<Param>,
-        mut body: BlockStmt,
+        body: BlockStmt,
         mut closure_vars: Vec<Ident>,
         is_generator: bool,
         is_async: bool,
     ) -> Expr {
         let (worklet_name, react_name) = self.next_name(func_name);
-        // Recursion support: if the worklet is named and references its own
-        // name in its body, rename those references to the worklet's internal
-        // name and prepend a `const <worklet_name> = this._recur;` binding so
-        // the renamed calls resolve against the running worklet instance at
-        // UI-thread dispatch time.
+
+        // Two bodies are produced from the same source body:
+        //
+        // - `init_body` is what gets serialized into the worklet's init_data
+        //   string (the UI-thread program). Free references to the worklet's
+        //   own name are renamed to `worklet_name` and a
+        //   `const <worklet_name> = this._recur;` decl is prepended so
+        //   recursive calls resolve against the running worklet at dispatch
+        //   time. `this` is the worklet object on the UI thread.
+        //
+        // - `body` (the original) is what `make_const_fn` wraps into the
+        //   JS-thread runtime function. It MUST stay free of `this._recur` —
+        //   strict-mode plain calls like `worklet(args)` from arbitrary JS
+        //   leave `this === undefined`, which would crash on `this._recur`.
+        //   Recursion on the JS thread resolves through standard scope:
+        //   either the named function expression's auto-bound name (when
+        //   `react_name == orig`) or the outer `const <orig>` produced by
+        //   the factory assignment (when they differ).
+        let mut init_body = body.clone();
         if let Some(orig) = func_name.filter(|n| !n.is_empty()) {
             if orig != worklet_name {
-                let renamed = rename_free_refs(&mut body, orig, &worklet_name);
+                let renamed = rename_free_refs(&mut init_body, orig, &worklet_name);
                 if renamed {
-                    body.stmts.insert(0, make_recur_decl(&worklet_name));
-                    // The closure-collection pass ran before the rename and
-                    // captured `orig` as a free variable; drop it now that no
-                    // references remain — recursion is handled via `_recur`.
+                    init_body.stmts.insert(0, make_recur_decl(&worklet_name));
+                    // The closure-collection pass captured `orig` as a free
+                    // var. Both threads resolve it internally now (recur decl
+                    // on UI, function-expression / outer const on JS), so it
+                    // doesn't belong in `__closure`.
                     closure_vars.retain(|v| v.sym.as_ref() != orig);
                 }
             }
@@ -216,7 +231,7 @@ impl WorkletsPlugin {
         let (code_str, real_source_map) = build_worklet_code_and_map(
             &worklet_name,
             &params,
-            &body,
+            &init_body,
             &closure_vars,
             is_generator,
             is_async,
@@ -2207,6 +2222,14 @@ impl VisitMut for FreeRefRenamer {
     fn visit_mut_ident(&mut self, ident: &mut Ident) {
         if ident.sym == self.from && !self.declared.contains(&self.from) {
             ident.sym = self.to.clone();
+            // The renamed reference must share a `SyntaxContext` with the
+            // freshly-inserted `const <to> = this._recur;` binding, which is
+            // built via `make_ident` (empty ctxt). Without clearing the
+            // resolver mark inherited from the original `from` binding, SWC's
+            // emitter sees two distinct bindings of the same symbol and
+            // disambiguates by appending a numeric suffix to the inner one —
+            // leaving every recursive call referencing an undefined identifier.
+            ident.ctxt = SyntaxContext::empty();
             self.renamed = true;
         }
     }

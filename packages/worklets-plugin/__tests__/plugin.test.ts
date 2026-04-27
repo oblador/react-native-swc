@@ -302,7 +302,17 @@ describe('swc worklets plugin', () => {
       const { code } = runPlugin(input);
       // The upstream Babel-based assertion had no whitespace around `=`;
       // SWC's emitter pretty-prints with spaces, so we allow either form.
-      expect(code).toMatch(/const foo_[A-Za-z0-9_]*\s*=\s*this\._recur;/);
+      const recurDecl = code.match(/const (foo_[A-Za-z0-9_]+)\s*=\s*this\._recur;/);
+      expect(recurDecl).not.toBeNull();
+      // The renamed recursive call inside the body MUST reference the same
+      // identifier as the recur binding. A SyntaxContext mismatch between the
+      // renamed reference and the freshly-inserted binding causes SWC to
+      // append a numeric suffix to disambiguate them, leaving the body call
+      // pointing at an undefined identifier (and crashing reanimated at
+      // `this._recur` access on the resulting `undefined`).
+      const recurName = recurDecl![1];
+      const callPattern = new RegExp(`\\b${recurName}\\s*\\(`);
+      expect(code).toMatch(callPattern);
     });
   });
 
@@ -1748,7 +1758,12 @@ describe('swc worklets plugin', () => {
       `;
       const { code } = runPlugin(input);
       expect(code).toHaveWorkletData();
-      expect(code).toMatch(/const foo_[A-Za-z0-9_]*\s*=\s*this\._recur;/);
+      const recurDecl = code.match(/const (foo_[A-Za-z0-9_]+)\s*=\s*this\._recur;/);
+      expect(recurDecl).not.toBeNull();
+      // Recursive call inside the body must reference the same identifier as
+      // the recur binding — see comment in `for self-recursive worklets`.
+      const callPattern = new RegExp(`\\b${recurDecl![1]}\\s*\\(`);
+      expect(code).toMatch(callPattern);
     });
   });
 
