@@ -49,8 +49,8 @@ local linters = new Mapping<String, Step> {
 
 hooks {
   ["pre-commit"] {
-    fix = true
-    stash = "git"
+    fix = false
+    stash = "none"
     steps = linters
   }
   ["pre-push"] {
