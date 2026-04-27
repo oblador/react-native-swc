@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build WASM plugins
+        run: |
+          pnpm --filter @react-native-swc/metro-plugin run build:wasm
+          pnpm --filter @react-native-swc/worklets-plugin run build:wasm
+
+      - name: Build TypeScript
+        run: pnpm build:ts
+
+      # npm trusted publishing (OIDC) — no NPM_TOKEN needed. Each package
+      # must have a matching "Trusted Publisher" configured in npm's UI
+      # pointing at this repo + workflow. Requires npm CLI >= 11.5.1.
+      - name: Ensure npm >= 11.5.1 for OIDC publishing
+        run: npm install -g npm@latest
+
+      # `pnpm publish` rewrites `workspace:*` specs to the concrete version
+      # number so consumers resolve to real npm versions. Publish order
+      # matters: react-native-swc depends on both plugins.
+      - name: Publish @react-native-swc/metro-plugin
+        run: pnpm --filter @react-native-swc/metro-plugin publish --access public --provenance --no-git-checks
+
+      - name: Publish @react-native-swc/worklets-plugin
+        run: pnpm --filter @react-native-swc/worklets-plugin publish --access public --provenance --no-git-checks
+
+      - name: Publish react-native-swc
+        run: pnpm --filter react-native-swc publish --access public --provenance --no-git-checks
