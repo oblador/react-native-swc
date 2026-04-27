@@ -304,14 +304,19 @@ export function runSwc(
     env: HERMES_ENV,
     // Convert ESM → CJS so `require()` calls are visible to dependency
     // collection. Dynamic `import()` is left untouched for Metro's async
-    // loading machinery.
-    module: { type: 'commonjs', ignoreDynamic: true },
+    // loading machinery. Under `experimentalImportSupport` the metro-plugin's
+    // `experimentalImports` pass is the source of truth for the leading
+    // `"use strict"` directive (it adds one for ESM, omits it for pure-CJS,
+    // matching Babel's `importExportPlugin`); suppress SWC's unconditional
+    // injection so we don't end up with a duplicate or an unwanted directive.
+    module: {
+      type: 'commonjs',
+      ignoreDynamic: true,
+      strictMode: !options.experimentalImportSupport,
+    },
     // Modules are forced to module-mode. Scripts use `"unknown"` so that
     // Flow polyfills with `export type …` still parse; SWC's Flow parser
-    // refuses any `export` token under `isModule: false`. The ESM residue
-    // that then leaks into the output (`"use strict"`, `Object.defineProperty
-    // (exports, "__esModule", …)`, stray `export { }`) is stripped by
-    // `stripScriptEsmResidue` in `src/hacks/esm-residue.ts`.
+    // refuses any `export` token under `isModule: false`.
     isModule: options.type === 'script' ? 'unknown' : true,
   };
 

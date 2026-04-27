@@ -364,6 +364,25 @@ var c = _$$_IMPORT_DEFAULT(_dependencyMap[0], "./c");
 exports[`transforms import/export syntax when experimental flag is on 2`] = `
 [
   [
+    6,
+    0,
+    1,
+    0,
+  ],
+  [
+    6,
+    4,
+    1,
+    7,
+    "c",
+  ],
+  [
+    6,
+    8,
+    1,
+    0,
+  ],
+  [
     8,
     3,
   ],

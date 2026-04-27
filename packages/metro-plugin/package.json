@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@rstest/core": "^0.9.9",
-    "@swc/core": "^1.15.30",
+    "@swc/core": "^1.15.32",
     "@types/node": "^22.0.0",
     "@typescript/native-preview": "^7.0.0-dev.20260426.1"
   },

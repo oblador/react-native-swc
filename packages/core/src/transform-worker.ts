@@ -19,7 +19,6 @@
  * shapes don't quite line up lives under `hacks/` with a deletion note.
  */
 import { generateCodegenSource, isCodegenFile } from './codegen';
-import { stripExperimentalImportResidue, stripScriptEsmResidue } from './hacks/esm-residue';
 import { runSwc } from './swc';
 import { transformAsset } from './assets';
 import { transformJs } from './transform-js';
@@ -71,29 +70,7 @@ export const transform = async (
     ? generateCodegenSource(filename, sourceCode)
     : sourceCode;
 
-  let { code, map } = runSwc(origSrc, filename, options, config.swcConfig);
-
-  // Polyfills force SWC into `isModule: "unknown"` which can leak ESM
-  // residue into the output; `js/script` wraps as an IIFE with no
-  // `exports` binding so any residue would throw at runtime.
-  if (options.type === 'script') {
-    const stripped = stripScriptEsmResidue(code, origSrc);
-    if (stripped !== code) {
-      code = stripped;
-      map = [];
-    }
-  }
-
-  // Pure-CJS files under experimentalImportSupport still get a `"use
-  // strict"` from SWC's CJS transform; Metro's Babel importExportPlugin
-  // only adds it for ESM files.
-  if (options.experimentalImportSupport) {
-    const stripped = stripExperimentalImportResidue(code, origSrc);
-    if (stripped !== code) {
-      code = stripped;
-      map = [];
-    }
-  }
+  const { code, map } = runSwc(origSrc, filename, options, config.swcConfig);
 
   const jsType: JSFileType = options.type === 'script' ? 'js/script' : 'js/module';
 
