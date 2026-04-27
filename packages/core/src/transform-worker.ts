@@ -66,7 +66,7 @@ export const transform = async (
     return transformAsset(filename, config, options, projectRoot);
   }
 
-  const origSrc = isCodegenFile(sourceCode)
+  const origSrc = isCodegenFile(filename, sourceCode)
     ? generateCodegenSource(filename, sourceCode)
     : sourceCode;
 
