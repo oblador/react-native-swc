@@ -62,6 +62,7 @@
     "clean": "rm -rf dist tsconfig.build.tsbuildinfo",
     "test": "rstest run",
     "typecheck": "tsgo --noEmit",
+    "prepack": "cp ../../README.md ./",
     "prepublishOnly": "pnpm build:ts"
   },
   "dependencies": {
