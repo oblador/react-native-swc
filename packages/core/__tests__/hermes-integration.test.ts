@@ -286,11 +286,10 @@ describe('transform worker output compiles with hermes', () => {
     });
   });
 
-  // Hermes does not support native `import()` expressions; Metro's Babel
-  // transform rewrites them into `require.context`-style async helpers. Our
-  // SWC pipeline currently leaves `import()` in the output, so hermesc
-  // rejects it. When this is fixed the `.failing` marker should be removed.
-  test.fails('dynamic import()', async () => {
+  // Hermes does not support native `import()` expressions; the post-SWC
+  // dependency rewrite pass turns them into the metro asyncRequire form so
+  // hermesc accepts the output.
+  test('dynamic import()', async () => {
     await transformAndCompile(`export const load = () => import("./mod");`, {
       testName: 'dynamic_import',
     });

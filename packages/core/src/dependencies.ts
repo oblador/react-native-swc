@@ -44,6 +44,8 @@ export interface RequireRef {
   /** SWC span of the dynamic expression (used for line-number approximation). */
   dynamicExprSpan?: { start: number; end: number };
   contextParams?: ContextParams;
+  /** True for ESM dynamic `import("…")` calls (replaceStart/End covers the whole call). */
+  isImport?: boolean;
 }
 
 export interface ContextParams {
@@ -55,6 +57,13 @@ export interface ContextParams {
 export interface CollectOptions {
   allowRequireContext?: boolean;
   envValues?: Record<string, string>;
+  /**
+   * Module specifier for the metro asyncRequire helper. Required when the
+   * source contains ESM dynamic `import("…")` calls — the rewrite emits
+   * `require(<asyncRequireModulePath>)(_dependencyMap[N], _dependencyMap.paths)`
+   * matching metro's `collectDependencies` Babel template.
+   */
+  asyncRequireModulePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,8 +97,10 @@ const SPAN_ANCHOR_LEN = Buffer.byteLength(SPAN_ANCHOR, 'utf8');
  */
 export function collectRequireRefs(code: string, options: CollectOptions = {}): RequireRef[] {
   // Cheap gate: skip the parse entirely when the source can't contain any
-  // of the dep-bearing call shapes we care about.
-  if (!code.includes('require') && !code.includes('_$$_IMPORT_')) {
+  // of the dep-bearing call shapes we care about. SWC's CJS transform with
+  // `ignoreDynamic: true` leaves `import("…")` untouched, so the literal
+  // substring `import` is the marker for an ESM dynamic-import call.
+  if (!code.includes('require') && !code.includes('_$$_IMPORT_') && !code.includes('import')) {
     return [];
   }
   const allowRequireContext = options.allowRequireContext === true;
@@ -134,22 +145,53 @@ export function transformRequires(
     precollectedStaticRefs ?? collectRequireRefs(code, options).filter((r) => !r.isDynamic);
   if (refs.length === 0) return { code, dependencies: [] };
 
-  const [dependencies, indexByKey] = buildDependencyList(refs);
-  const output = spliceReplacements(code, refs, indexByKey);
+  const asyncRequireModulePath = options?.asyncRequireModulePath;
+  const [dependencies, indexByKey, asyncHelperIdx] = buildDependencyList(
+    refs,
+    asyncRequireModulePath,
+  );
+  const output = spliceReplacements(code, refs, indexByKey, asyncHelperIdx);
   return { code: output, dependencies };
 }
 
+const ASYNC_HELPER_KEY = '\0__async_require_helper';
+
 function buildDependencyList(
   refs: ReadonlyArray<RequireRef>,
-): [TransformResultDependency[], Map<string, number>] {
+  asyncRequireModulePath: string | undefined,
+): [TransformResultDependency[], Map<string, number>, number | undefined] {
   const indexByKey = new Map<string, number>();
   const deps: {
     key: string;
     name: string;
     asyncType: AsyncType;
     isOptional: boolean;
+    isESMImport: boolean;
     contextParams?: ContextParams;
   }[] = [];
+
+  // Pre-allocate the asyncRequire helper slot when the module contains any
+  // ESM `import("…")` calls, so the helper's _dependencyMap index is stable
+  // regardless of import order. The key is internal (not derivable from any
+  // user specifier) to avoid colliding with a real require of the same path.
+  let asyncHelperIdx: number | undefined;
+  const hasImport = refs.some((r) => r.isImport && !r.isDynamic);
+  if (hasImport) {
+    if (asyncRequireModulePath == null || asyncRequireModulePath === '') {
+      throw new Error(
+        'Encountered ESM dynamic import() but asyncRequireModulePath is not configured.',
+      );
+    }
+    indexByKey.set(ASYNC_HELPER_KEY, deps.length);
+    asyncHelperIdx = deps.length;
+    deps.push({
+      key: `${asyncRequireModulePath}\0require`,
+      name: asyncRequireModulePath,
+      asyncType: null,
+      isOptional: false,
+      isESMImport: false,
+    });
+  }
 
   for (const ref of refs) {
     const key = dependencyKey(ref);
@@ -161,6 +203,7 @@ function buildDependencyList(
         name: ref.specifier,
         asyncType: ref.asyncType,
         isOptional: ref.isOptional,
+        isESMImport: ref.isImport === true,
         contextParams: ref.contextParams,
       });
       continue;
@@ -173,12 +216,12 @@ function buildDependencyList(
   }
 
   const dependencies: TransformResultDependency[] = deps.map(
-    ({ key, name, asyncType, isOptional, contextParams }) => ({
+    ({ key, name, asyncType, isOptional, isESMImport, contextParams }) => ({
       name,
       data: {
         key,
         asyncType,
-        isESMImport: false,
+        isESMImport,
         isOptional,
         ...(contextParams ? { contextParams } : {}),
         locs: [],
@@ -186,20 +229,24 @@ function buildDependencyList(
       },
     }),
   );
-  return [dependencies, indexByKey];
+  return [dependencies, indexByKey, asyncHelperIdx];
 }
 
 function dependencyKey(ref: RequireRef): string {
-  const base = `${ref.specifier}:${ref.asyncType ?? ''}`;
+  // Match metro's `getKeyForDependency`: ESM imports and CJS requires of the
+  // same specifier produce distinct deps (the runtime treats them differently).
+  const kind = ref.isImport ? 'import' : 'require';
+  const base = `${ref.specifier}\0${kind}\0${ref.asyncType ?? ''}`;
   if (!ref.contextParams) return base;
   const { recursive, filter, mode } = ref.contextParams;
-  return `${base}:context:${recursive}:${filter.pattern}:${filter.flags}:${mode}`;
+  return `${base}\0context\0${recursive}\0${filter.pattern}\0${filter.flags}\0${mode}`;
 }
 
 function spliceReplacements(
   code: string,
   refs: ReadonlyArray<RequireRef>,
   indexByKey: ReadonlyMap<string, number>,
+  asyncHelperIdx: number | undefined,
 ): string {
   // SWC spans are UTF-8 byte offsets, so we splice on a Buffer. Single pass
   // ascending: copy the gap before each ref, then the replacement, then move
@@ -208,6 +255,13 @@ function spliceReplacements(
   const sorted = [...refs].sort((a, b) => a.replaceStart - b.replaceStart);
   const replacements = sorted.map((ref) => {
     const idx = indexByKey.get(dependencyKey(ref))!;
+    if (ref.isImport) {
+      // `import("…")` → `require(asyncHelper)(_dependencyMap[N], _dependencyMap.paths)`.
+      return Buffer.from(
+        `require(${DEP_MAP_NAME}[${asyncHelperIdx}])(${DEP_MAP_NAME}[${idx}], ${DEP_MAP_NAME}.paths)`,
+        'utf8',
+      );
+    }
     return Buffer.from(
       ref.contextParams ? `require(${DEP_MAP_NAME}[${idx}])` : `${DEP_MAP_NAME}[${idx}]`,
       'utf8',
@@ -252,10 +306,10 @@ function spliceSinglePass(
 // ---------------------------------------------------------------------------
 
 /**
- * Error out or rewrite every `require(expr)` call whose argument isn't a
- * string literal. `'reject'` throws at build time; `'throwAtRuntime'`
- * replaces the call with a runtime throw that Metro uses for node_modules
- * whose source intentionally contains dynamic requires.
+ * Error out or rewrite every `require(expr)` / `import(expr)` call whose
+ * argument isn't a string literal. `'reject'` throws at build time;
+ * `'throwAtRuntime'` replaces the call with a runtime throw that Metro uses
+ * for node_modules whose source intentionally contains dynamic requires.
  */
 export function handleDynamicRequires(
   code: string,
@@ -269,8 +323,9 @@ export function handleDynamicRequires(
   if (behavior === 'reject') {
     const first = dynamic[0];
     const line = byteOffsetToLine(code, first.dynamicExprSpan?.start ?? first.replaceStart);
+    const callKind = first.isImport ? 'import()' : 'require()';
     throw new Error(
-      `${filename}: Dynamic require is not supported. Encountered a require() call with a non-literal argument at line ${line}.`,
+      `${filename}: Dynamic require is not supported. Encountered a ${callKind} call with a non-literal argument at line ${line}.`,
     );
   }
 
@@ -340,6 +395,16 @@ function handleCall(
   if (node.type !== 'CallExpression' && node.type !== 'NewExpression') return;
 
   const callee = node.callee as SwcNode;
+
+  // ESM dynamic `import("…")` — SWC's CJS transform leaves this untouched
+  // (`ignoreDynamic: true`). Hermes can't parse it, so we rewrite the entire
+  // call into `require(asyncRequire)(_dependencyMap[N], _dependencyMap.paths)`
+  // matching metro's collectDependencies Babel template.
+  if (node.type === 'CallExpression' && callee.type === 'Import') {
+    pushDynamicImport(node, inTryBlock, refs, base);
+    return;
+  }
+
   const match = classifyRequireCallee(node.type as string, callee);
   if (!match) return;
 
@@ -427,6 +492,54 @@ function classifyRequireCallee(nodeType: string, callee: SwcNode): CalleeMatch |
     default:
       return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// import("…")
+// ---------------------------------------------------------------------------
+
+function pushDynamicImport(
+  node: SwcNode,
+  inTryBlock: boolean,
+  refs: RequireRef[],
+  base: number,
+): void {
+  const args = (node.arguments ?? []) as SwcNode[];
+  // No args: `import()` is a SyntaxError; ignore silently and let downstream
+  // tooling surface it.
+  if (args.length === 0) return;
+  const expr = args[0].expression as SwcNode | undefined;
+  if (!expr) return;
+
+  const callSpan = node.span as { start: number; end: number };
+
+  if (expr.type !== 'StringLiteral') {
+    refs.push({
+      argStart: callSpan.start - base,
+      argEnd: callSpan.end - base,
+      replaceStart: callSpan.start - base,
+      replaceEnd: callSpan.end - base,
+      specifier: '',
+      asyncType: 'async',
+      isOptional: inTryBlock,
+      isDynamic: true,
+      isImport: true,
+      dynamicExprSpan: expr.span as { start: number; end: number },
+    });
+    return;
+  }
+
+  const argSpan = expr.span as { start: number; end: number };
+  refs.push({
+    argStart: argSpan.start - base,
+    argEnd: argSpan.end - base,
+    replaceStart: callSpan.start - base,
+    replaceEnd: callSpan.end - base,
+    specifier: expr.value as string,
+    asyncType: 'async',
+    isOptional: inTryBlock,
+    isImport: true,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -352,6 +352,58 @@ export const ctx = require.context(
     expect(out.dependencies[0].data.contextParams?.mode).toBe('lazy');
     expect(out.code.includes('require(_dependencyMap[0])')).toBe(true);
   });
+
+  test('dynamic import() rewrites to the asyncRequire helper form', () => {
+    const input = `const m = import("./foo");`;
+    const out = transformRequires(input, { asyncRequireModulePath: 'asyncRequire' });
+
+    // Slot 0 is the asyncRequire helper; slot 1 is the imported specifier.
+    expect(out.code).toBe(
+      `const m = require(_dependencyMap[0])(_dependencyMap[1], _dependencyMap.paths);`,
+    );
+    expect(out.dependencies).toHaveLength(2);
+    expect(out.dependencies[0].name).toBe('asyncRequire');
+    expect(out.dependencies[0].data.asyncType).toBeNull();
+    expect(out.dependencies[0].data.isESMImport).toBe(false);
+    expect(out.dependencies[1].name).toBe('./foo');
+    expect(out.dependencies[1].data.asyncType).toBe('async');
+    expect(out.dependencies[1].data.isESMImport).toBe(true);
+  });
+
+  test('dynamic import() and same-name require() produce distinct deps', () => {
+    const input = `const a = require("./foo"); const b = import("./foo");`;
+    const out = transformRequires(input, { asyncRequireModulePath: 'asyncRequire' });
+
+    expect(out.dependencies.map((d) => ({ name: d.name, asyncType: d.data.asyncType }))).toEqual([
+      // Static require collected before import call: helper slot is allocated
+      // first when buildDependencyList is processed, but the static require is
+      // visited first by collectRequireRefs — order matters for the dep list.
+      { name: 'asyncRequire', asyncType: null },
+      { name: './foo', asyncType: null },
+      { name: './foo', asyncType: 'async' },
+    ]);
+    expect(out.code).toBe(
+      `const a = require(_dependencyMap[1]); const b = require(_dependencyMap[0])(_dependencyMap[2], _dependencyMap.paths);`,
+    );
+  });
+
+  test('dynamic import() with non-literal argument throws at build time', async () => {
+    await expect(
+      transform(
+        baseConfig,
+        '/root',
+        'local/file.js',
+        Buffer.from(`const m = import(name);`, 'utf8'),
+        baseTransformOptions,
+      ),
+    ).rejects.toThrow(/Dynamic require is not supported.*import\(\) call/);
+  });
+
+  test('repeated import() of the same specifier shares one dep slot', () => {
+    const input = `const a = import("./foo"); const b = import("./foo");`;
+    const out = transformRequires(input, { asyncRequireModulePath: 'asyncRequire' });
+    expect(out.dependencies.map((d) => d.name)).toEqual(['asyncRequire', './foo']);
+  });
 });
 
 // ---------------------------------------------------------------------------

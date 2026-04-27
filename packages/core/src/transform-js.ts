@@ -84,6 +84,7 @@ async function transformModule(ctx: TransformJsContext): Promise<TransformRespon
   const collectOpts = {
     allowRequireContext: ctx.config.unstable_allowRequireContext,
     envValues: contextEnvValues,
+    asyncRequireModulePath: ctx.config.asyncRequireModulePath,
   };
   const refs = collectRequireRefs(src, collectOpts);
   const hasDynamic = refs.some((r) => r.isDynamic);
