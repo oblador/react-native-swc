@@ -62,5 +62,5 @@ jobs:
       - name: Publish @react-native-swc/worklets-plugin
         run: pnpm --filter @react-native-swc/worklets-plugin publish --access public --provenance --no-git-checks
 
-      - name: Publish react-native-swc
-        run: pnpm --filter react-native-swc publish --access public --provenance --no-git-checks
+      - name: Publish @react-native-swc/core
+        run: pnpm --filter @react-native-swc/core publish --access public --provenance --no-git-checks
