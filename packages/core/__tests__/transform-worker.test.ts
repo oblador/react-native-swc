@@ -828,6 +828,139 @@ test('allows outputting comments when `minify: true`', async () => {
   );
 });
 
+test('forwards user `minifierConfig.mangle: false` to SWC', async () => {
+  // The minifier wrapper is a thin terser→SWC translator. Sanity-check
+  // that a flag the user passes via `minifierConfig` actually reaches
+  // SWC and changes its output — i.e. the translator isn't silently
+  // dropping the user's keys. `mangle: false` is the cleanest signal:
+  // mangling renames local identifiers like `arbitraryLocalVar` to a
+  // single letter, so disabling it keeps the original name in the
+  // output.
+  const src = [
+    `export function f(arbitraryLocalVar) {`,
+    `  const anotherLocalVar = arbitraryLocalVar + 1;`,
+    `  return anotherLocalVar;`,
+    `}`,
+  ].join('\n');
+
+  const withMangleOff = await transform(
+    { ...baseConfig, minifierConfig: { output: { comments: false }, mangle: false } },
+    '/root',
+    'local/file.js',
+    Buffer.from(src, 'utf8'),
+    { ...baseTransformOptions, dev: false, minify: true },
+  );
+  // With mangle off, parameter names AND the module factory's parameter
+  // names (`global`, `require`, `_dependencyMap`, …) survive verbatim.
+  expect(withMangleOff.output[0].data.code).toContain('arbitraryLocalVar');
+  expect(withMangleOff.output[0].data.code).toContain('_dependencyMap');
+
+  // Sanity: under the default config the same names get mangled away.
+  const baseline = await transform(baseConfig, '/root', 'local/file.js', Buffer.from(src, 'utf8'), {
+    ...baseTransformOptions,
+    dev: false,
+    minify: true,
+  });
+  expect(baseline.output[0].data.code).not.toContain('arbitraryLocalVar');
+  expect(baseline.output[0].data.code).not.toContain('_dependencyMap');
+});
+
+test("translates upstream Metro's default `minifierConfig` to SWC options", async () => {
+  // The exact `minifierConfig` block Metro ships in `metro-config`'s
+  // DEFAULT_METRO_CONFIG (facebook/metro
+  // packages/metro-config/src/defaults/index.js). It targets
+  // `metro-minify-terser`; the wrapper in `minify.ts` translates terser-
+  // shape options (`output` → `format`; `mangle.reserved` augmented;
+  // `compress` / `mangle` / `toplevel` forwarded by name) into what
+  // `@swc/core` expects. This test pins the contract that passing the
+  // block verbatim is a non-event:
+  //
+  //   1. The translator must not throw on terser-only keys like
+  //      `output.quote_style` / `output.wrap_iife` / `output.ascii_only`
+  //      (all currently noop in SWC per `@swc/types/index.d.ts`).
+  //   2. `sourceMap.includeSources` lives at the top level; the worker
+  //      drives sourcemaps independently and must ignore it cleanly.
+  //   3. The result must still be a valid Metro module wrapper.
+  //
+  // The flag-effect side of the contract — that user keys actually reach
+  // SWC and aren't dropped on the floor — is covered by the `mangle:
+  // false` test below. This one only catches "passing Metro's exact
+  // defaults breaks the translator", which the previous regex-rename of
+  // `output → format` could have introduced.
+  const metroDefaultMinifierConfig = {
+    mangle: { toplevel: false },
+    output: { ascii_only: true, quote_style: 3, wrap_iife: true },
+    sourceMap: { includeSources: false },
+    toplevel: false,
+    compress: { reduce_funcs: false },
+  };
+
+  const src = [`'use strict';`, `module.exports = function add(a, b) { return a + b; };`].join(
+    '\n',
+  );
+
+  const result = await transform(
+    { ...baseConfig, minifierConfig: metroDefaultMinifierConfig },
+    '/root',
+    'local/file.js',
+    Buffer.from(src, 'utf8'),
+    { ...baseTransformOptions, dev: false, minify: true },
+  );
+
+  const code = result.output[0].data.code;
+  // Wrapped as a Metro factory (no parser error, no SWC option error).
+  expect(code).toMatch(/^__d\(function\(/);
+  // The module body survived: an `exports = function(…){return …}`
+  // assignment is recognisable through mangling.
+  expect(code).toMatch(/=function\([^)]*\)\{return /);
+});
+
+test('honours `minifierConfig.compress: false` to skip the compress pass', async () => {
+  // Source: a top-level helper function with a single call site at the
+  // module's exported entry point. With default compress, SWC inlines the
+  // helper into the caller via a `let X; … return X = {…}, callee(…)`
+  // closure-capture trick. The escape hatch lets users opt that out
+  // wholesale when the inlined shape trips a downstream runtime (we hit
+  // this with Hermes' generator implementation for an async helper that
+  // had its only call site inside another async function — closure-
+  // captured `let` bindings re-read across a yield boundary read as
+  // undefined).
+  const src = [
+    `function inner(args) {`,
+    `  return args.x + args.y;`,
+    `}`,
+    `export function outer(x, y) {`,
+    `  return inner({ x, y });`,
+    `}`,
+  ].join('\n');
+
+  const countFns = (code: string) => (code.match(/\bfunction\s+\w+\s*\(/g) ?? []).length;
+
+  const withCompress = await transform(
+    baseConfig,
+    '/root',
+    'local/file.js',
+    Buffer.from(src, 'utf8'),
+    { ...baseTransformOptions, dev: false, minify: true },
+  );
+  // Default compress folds `inner` away — only `outer` survives as a
+  // named function declaration.
+  expect(countFns(withCompress.output[0].data.code)).toBe(1);
+
+  const withoutCompress = await transform(
+    { ...baseConfig, minifierConfig: { output: { comments: false }, compress: false } },
+    '/root',
+    'local/file.js',
+    Buffer.from(src, 'utf8'),
+    { ...baseTransformOptions, dev: false, minify: true },
+  );
+  // With `compress: false`, both `inner` and `outer` survive (mangle
+  // renames them but the function declarations are still there). This is
+  // the shape users want when SWC's default compress is too aggressive
+  // for their target runtime.
+  expect(countFns(withoutCompress.output[0].data.code)).toBe(2);
+});
+
 // ---------------------------------------------------------------------------
 // Worklets plugin × ESM→CJS — regression tests
 // ---------------------------------------------------------------------------
