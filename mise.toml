@@ -1,13 +1,14 @@
 [tools]
 
-node = "25.9.0"
-rust = "stable"
 ruby = "3.4.9"
 java = "openjdk-17"
 "gem:bundler" = "latest"
 "aqua:sharkdp/hyperfine" = "latest"
 hk = "latest"
 pkl = "latest"
+
+[settings]
+idiomatic_version_file_enable_tools = ["node", "rust"]
 
 [settings.ruby]
 compile = false
