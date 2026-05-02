@@ -1,6 +1,6 @@
 {
   "name": "@react-native-swc/worklets-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SWC plugin that workletizes `'worklet'`-tagged functions for react-native-reanimated / react-native-worklets.",
   "keywords": [
     "react-native",

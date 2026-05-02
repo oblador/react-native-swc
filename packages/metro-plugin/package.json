@@ -1,6 +1,6 @@
 {
   "name": "@react-native-swc/metro-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SWC plugin ports of Metro's post-transform passes (inline, inline-requires, constant-folding, experimental-imports).",
   "keywords": [
     "bundler",
