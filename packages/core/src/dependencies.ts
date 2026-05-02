@@ -424,7 +424,8 @@ function handleCall(
   // specifier as the first argument by the experimental-imports Rust
   // plugin; they're always static, so dynamic-require handling doesn't
   // apply to them.
-  if (expr.type !== 'StringLiteral') {
+  const staticValue = staticStringValue(expr);
+  if (staticValue == null) {
     if (match.kind === 'importHelper') return;
     const callSpan = node.span as { start: number; end: number };
     refs.push({
@@ -447,10 +448,30 @@ function handleCall(
     argEnd: span.end - base,
     replaceStart: span.start - base,
     replaceEnd: span.end - base,
-    specifier: expr.value as string,
+    specifier: staticValue,
     asyncType: match.asyncType,
     isOptional: inTryBlock,
   });
+}
+
+/**
+ * Returns the static string value of `expr` when it is either a `StringLiteral`
+ * or a no-substitution `TemplateLiteral` (e.g. `` `./foo` ``). Returns null
+ * for any other expression shape — including template literals that have
+ * interpolated expressions, which must be treated as dynamic.
+ */
+function staticStringValue(expr: SwcNode | undefined): string | null {
+  if (!expr) return null;
+  if (expr.type === 'StringLiteral') return expr.value as string;
+  if (expr.type === 'TemplateLiteral') {
+    const expressions = expr.expressions as unknown[] | undefined;
+    const quasis = expr.quasis as SwcNode[] | undefined;
+    if (expressions && expressions.length === 0 && quasis && quasis.length === 1) {
+      const cooked = quasis[0].cooked;
+      if (typeof cooked === 'string') return cooked;
+    }
+  }
+  return null;
 }
 
 type CalleeMatch =
@@ -513,7 +534,8 @@ function pushDynamicImport(
 
   const callSpan = node.span as { start: number; end: number };
 
-  if (expr.type !== 'StringLiteral') {
+  const staticValue = staticStringValue(expr);
+  if (staticValue == null) {
     refs.push({
       argStart: callSpan.start - base,
       argEnd: callSpan.end - base,
@@ -535,7 +557,7 @@ function pushDynamicImport(
     argEnd: argSpan.end - base,
     replaceStart: callSpan.start - base,
     replaceEnd: callSpan.end - base,
-    specifier: expr.value as string,
+    specifier: staticValue,
     asyncType: 'async',
     isOptional: inTryBlock,
     isImport: true,
@@ -642,7 +664,8 @@ function resolveStringExpr(
   envValues: Record<string, string>,
 ): string | null {
   if (!expr) return null;
-  if (expr.type === 'StringLiteral') return String(expr.value);
+  const staticValue = staticStringValue(expr);
+  if (staticValue != null) return staticValue;
   const envKey = readProcessEnvKey(expr);
   if (envKey && envValues[envKey] != null) return envValues[envKey];
   return null;
