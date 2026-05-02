@@ -1,6 +1,5 @@
 [tools]
 
-ruby = "3.4.9"
 java = "openjdk-17"
 "gem:bundler" = "latest"
 "aqua:sharkdp/hyperfine" = "latest"
@@ -8,7 +7,7 @@ hk = "latest"
 pkl = "latest"
 
 [settings]
-idiomatic_version_file_enable_tools = ["node", "rust"]
+idiomatic_version_file_enable_tools = ["node", "rust", "ruby"]
 
 [settings.ruby]
 compile = false
