@@ -13,6 +13,9 @@ local linters = new Mapping<String, Step> {
       "**/*.mts",
       "**/*.json",
       "**/*.md",
+      "**/*.yml",
+      "**/*.yaml",
+      "**/*.toml",
     )
     exclude = List(
       "**/*.wasm",
@@ -48,11 +51,6 @@ local linters = new Mapping<String, Step> {
 }
 
 hooks {
-  ["pre-commit"] {
-    fix = false
-    stash = "none"
-    steps = linters
-  }
   ["pre-push"] {
     steps = linters
   }
