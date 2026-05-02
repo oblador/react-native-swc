@@ -1,0 +1,121 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: bench-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # for the sticky comment
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      any: ${{ steps.filter.outputs.metro_plugin == 'true' || steps.filter.outputs.worklets_plugin == 'true' || steps.filter.outputs.transformer == 'true' || steps.filter.outputs.bundle == 'true' }}
+      metro_plugin: ${{ steps.filter.outputs.metro_plugin }}
+      worklets_plugin: ${{ steps.filter.outputs.worklets_plugin }}
+      transformer: ${{ steps.filter.outputs.transformer }}
+      bundle: ${{ steps.filter.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            metro_plugin:
+              - 'packages/metro-plugin/crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/bench.yml'
+            worklets_plugin:
+              - 'packages/worklets-plugin/crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/bench.yml'
+            transformer:
+              - 'packages/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'benchmarks/**'
+              - '.github/workflows/bench.yml'
+            bundle:
+              - 'packages/**'
+              - 'examples/vanilla/**'
+              - 'examples/expo/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'benchmarks/**'
+              - '.github/workflows/bench.yml'
+
+  bench:
+    name: Run impacted benchmarks
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # for `git merge-base`
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.93.0'
+          targets: wasm32-wasip1
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+
+      - name: Install hyperfine
+        run: |
+          curl -sSL https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C /tmp
+          sudo mv /tmp/hyperfine-v1.20.0-x86_64-unknown-linux-musl/hyperfine /usr/local/bin/
+
+      - name: Compose --only filter from detect
+        id: only
+        run: |
+          parts=()
+          [ "${{ needs.detect.outputs.metro_plugin }}"    = "true" ] && parts+=("metro-plugin")
+          [ "${{ needs.detect.outputs.worklets_plugin }}" = "true" ] && parts+=("worklets-plugin")
+          [ "${{ needs.detect.outputs.transformer }}"     = "true" ] && parts+=("transformer")
+          [ "${{ needs.detect.outputs.bundle }}"          = "true" ] && parts+=("bundle")
+          IFS=,; echo "value=${parts[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Run bench.sh
+        run: |
+          ./benchmarks/bench.sh \
+            --base origin/${{ github.base_ref }} \
+            --only "${{ steps.only.outputs.value }}" \
+            --out report.md
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-results
+          path: bench-results/
+          retention-days: 14
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: always() && hashFiles('report.md') != ''
+        with:
+          header: bench-report
+          path: report.md

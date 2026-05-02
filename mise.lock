@@ -174,5 +174,5 @@ checksum = "sha256:4375268618b61dadf53bf8e54beaca74ea30580c90d3c47ea9f2a134bd3e4
 url = "https://github.com/oneclick/rubyinstaller2/releases/download/RubyInstaller-3.4.9-1/rubyinstaller-3.4.9-1-x64.7z"
 
 [[tools.rust]]
-version = "stable"
+version = "1.93.0"
 backend = "core:rust"

@@ -51,7 +51,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: '1.93.0'
+          targets: wasm32-wasip1
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -61,7 +62,6 @@ jobs:
 
       - name: Build WASM plugins
         run: |
-          rustup target add wasm32-wasip1
           pnpm --filter @react-native-swc/metro-plugin run build:wasm
           pnpm --filter @react-native-swc/worklets-plugin run build:wasm
 
