@@ -404,6 +404,34 @@ export const ctx = require.context(
     const out = transformRequires(input, { asyncRequireModulePath: 'asyncRequire' });
     expect(out.dependencies.map((d) => d.name)).toEqual(['asyncRequire', './foo']);
   });
+
+  test('require() with a no-substitution template literal is treated as static', () => {
+    const input = 'const x = require(`/assets/image.png`);';
+    const { code, dependencies } = transformRequires(input);
+    expect(code).toBe('const x = require(_dependencyMap[0]);');
+    expect(dependencies.map((d) => d.name)).toEqual(['/assets/image.png']);
+  });
+
+  test('require() with an interpolated template literal is still dynamic', async () => {
+    await expect(
+      transform(
+        baseConfig,
+        '/root',
+        'local/file.js',
+        Buffer.from('const x = require(`/assets/${name}.png`);', 'utf8'),
+        baseTransformOptions,
+      ),
+    ).rejects.toThrow(/Dynamic require is not supported.*require\(\) call/);
+  });
+
+  test('import() with a no-substitution template literal is treated as static', () => {
+    const input = 'const m = import(`./foo`);';
+    const out = transformRequires(input, { asyncRequireModulePath: 'asyncRequire' });
+    expect(out.code).toBe(
+      'const m = require(_dependencyMap[0])(_dependencyMap[1], _dependencyMap.paths);',
+    );
+    expect(out.dependencies.map((d) => d.name)).toEqual(['asyncRequire', './foo']);
+  });
 });
 
 // ---------------------------------------------------------------------------
