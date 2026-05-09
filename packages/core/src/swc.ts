@@ -83,6 +83,10 @@ function selectParser(filename: string, source: string): ExtendedParserConfig {
 // Environment / globals building blocks
 // ---------------------------------------------------------------------------
 
+function nodeEnvFor(dev: boolean): string {
+  return dev ? 'development' : 'production';
+}
+
 /**
  * Build the `jsc.transform.optimizer.globals` maps that drive the constant-
  * inline pass. Emits values as JSON strings so SWC pastes them verbatim
@@ -98,7 +102,7 @@ function buildOptimizerGlobals(
 
   const vars: Record<string, string> = { __DEV__: JSON.stringify(dev) };
   const envs: Record<string, string> = {
-    NODE_ENV: JSON.stringify(dev ? 'development' : 'production'),
+    NODE_ENV: JSON.stringify(nodeEnvFor(dev)),
     EXPO_OS: JSON.stringify(platform),
   };
 
@@ -207,6 +211,10 @@ interface PostTransformOptions {
   platform: string;
   nonInlinedRequires: string[];
   extraInlineableCalls: string[];
+  /** Substituted into the AST by the inline pass so the sibling
+   *  `constant_folding` pass can fold `if (__DEV__) …` branches. */
+  dev: boolean;
+  nodeEnv: string;
 }
 
 /**
@@ -264,6 +272,8 @@ export function runSwc(
     nonInlinedRequires: [...(options.nonInlinedRequires ?? [])],
     // SWC already handles interop inline; no extra helper calls are needed.
     extraInlineableCalls: [],
+    dev,
+    nodeEnv: nodeEnvFor(dev),
   };
 
   const swcOptions: SwcOptions = {
@@ -271,7 +281,7 @@ export function runSwc(
     // Surface NODE_ENV to SWC plugins via the plugin-env metadata, so e.g.
     // the worklets plugin can detect release mode with its upstream
     // `/(prod|release|stag[ei])/i` regex instead of a custom option.
-    envName: dev ? 'development' : 'production',
+    envName: nodeEnvFor(dev),
     swcrc: false,
     configFile: false,
     sourceMaps: true,

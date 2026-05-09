@@ -24,6 +24,13 @@ struct PostTransformPluginOptions {
     inline_platform: bool,
     platform: String,
     is_wrapped: bool,
+    /// `__DEV__` substitution for the inline pass. `Some(b)` substitutes;
+    /// `None` (default) leaves `__DEV__` as an Identifier so a downstream
+    /// optimizer pass can handle it.
+    dev: Option<bool>,
+    /// `process.env.NODE_ENV` substitution for the inline pass. Same opt-in
+    /// semantics as `dev`.
+    node_env: Option<String>,
 
     // Inline-requires configuration.
     non_inlined_requires: Vec<String>,
@@ -57,6 +64,8 @@ pub fn process_transform(
                 is_wrapped: options.is_wrapped,
                 require_name: "require".to_string(),
                 platform: options.platform,
+                dev: options.dev,
+                node_env: options.node_env.clone(),
             },
         );
     }

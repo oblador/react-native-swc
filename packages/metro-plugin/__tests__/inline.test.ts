@@ -7,7 +7,7 @@
  * compatibility, not the inline plugin itself).
  */
 
-import { compareInline } from './test-helpers';
+import { compareInline, compareInlineThenFold } from './test-helpers';
 
 describe('inline constants', () => {
   test('replaces Platform.OS in the code if Platform is a global', () => {
@@ -675,5 +675,164 @@ describe('inline constants', () => {
       platform: 'android',
       isWrapped: true,
     });
+  });
+});
+
+describe('dev / NODE_ENV substitution', () => {
+  test('replaces __DEV__ with the dev option literal', () => {
+    const code = `
+      if (__DEV__) require('./d'); else require('./p');
+    `;
+    const expected = `
+      if (false) require('./d'); else require('./p');
+    `;
+    compareInline(code, expected, { dev: false });
+  });
+
+  test('replaces __DEV__ with true when dev: true', () => {
+    const code = `var x = __DEV__;`;
+    const expected = `var x = true;`;
+    compareInline(code, expected, { dev: true });
+  });
+
+  test('replaces process.env.NODE_ENV with the nodeEnv string literal', () => {
+    const code = `
+      if (process.env.NODE_ENV !== 'production') { foo(); }
+    `;
+    const expected = `
+      if ("production" !== 'production') { foo(); }
+    `;
+    compareInline(code, expected, { nodeEnv: 'production' });
+  });
+
+  test('does not substitute __DEV__ when locally shadowed', () => {
+    const code = `
+      function f() {
+        var __DEV__ = "x";
+        return __DEV__;
+      }
+    `;
+    compareInline(code, code, { dev: false });
+  });
+
+  test('does not substitute process.env.NODE_ENV when process is locally shadowed', () => {
+    const code = `
+      function f() {
+        var process = { env: { NODE_ENV: 'shadow' } };
+        return process.env.NODE_ENV;
+      }
+    `;
+    compareInline(code, code, { nodeEnv: 'production' });
+  });
+
+  test('does not substitute __DEV__ when dev option is undefined (default)', () => {
+    const code = `
+      if (__DEV__) require('./d'); else require('./p');
+    `;
+    compareInline(code, code, {});
+  });
+
+  test('does not substitute process.env.NODE_ENV when nodeEnv option is undefined (default)', () => {
+    const code = `
+      if (process.env.NODE_ENV !== 'production') { foo(); }
+    `;
+    compareInline(code, code, {});
+  });
+
+  test('does not touch the LHS of an assignment to __DEV__', () => {
+    // Visitor only descends into the RHS of assignments — assignment to a
+    // shadow-style `__DEV__` should round-trip even when dev substitution is
+    // requested.
+    const code = `
+      function f() {
+        var __DEV__;
+        __DEV__ = 1;
+      }
+    `;
+    compareInline(code, code, { dev: false });
+  });
+
+  test('does not touch the LHS of an assignment to __DEV__ without a shadow declaration', () => {
+    // Same LHS-skip mechanism, but here there's no `var __DEV__` shadow at
+    // all — so this isolates `visit_mut_assign_expr`'s RHS-only descent.
+    const code = `
+      function f() {
+        __DEV__ = 1;
+      }
+    `;
+    compareInline(code, code, { dev: false });
+  });
+
+  test('does not touch the LHS of an assignment to process.env.NODE_ENV', () => {
+    const code = `
+      function f() {
+        process.env.NODE_ENV = "test";
+      }
+    `;
+    compareInline(code, code, { nodeEnv: 'production' });
+  });
+
+  test("replaces process.env.NODE_ENV with 'development' when nodeEnv is 'development'", () => {
+    const code = `
+      if (process.env.NODE_ENV === 'development') { foo(); }
+    `;
+    const expected = `
+      if ("development" === 'development') { foo(); }
+    `;
+    compareInline(code, expected, { nodeEnv: 'development' });
+  });
+
+  test('inline + constantFolding eliminates the dev require branch', () => {
+    const code = `
+      var ReactFabric;
+      if (__DEV__) {
+        ReactFabric = require('./ReactFabric-dev');
+      } else {
+        ReactFabric = require('./ReactFabric-prod');
+      }
+    `;
+    const expected = `
+      var ReactFabric;
+      {
+        ReactFabric = require('./ReactFabric-prod');
+      }
+    `;
+    compareInlineThenFold(code, expected, { dev: false });
+  });
+
+  test('inline + constantFolding keeps the dev branch when dev: true', () => {
+    const code = `
+      var ReactFabric;
+      if (__DEV__) {
+        ReactFabric = require('./ReactFabric-dev');
+      } else {
+        ReactFabric = require('./ReactFabric-prod');
+      }
+    `;
+    const expected = `
+      var ReactFabric;
+      {
+        ReactFabric = require('./ReactFabric-dev');
+      }
+    `;
+    compareInlineThenFold(code, expected, { dev: true });
+  });
+
+  test('inline + constantFolding eliminates a dev-only side-effect require', () => {
+    const code = `
+      if (__DEV__) {
+        require('react-devtools-core').connectToDevTools({ host: 'localhost' });
+      }
+    `;
+    compareInlineThenFold(code, '', { dev: false });
+  });
+
+  test('inline + constantFolding folds a NODE_ENV branch', () => {
+    const code = `
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('dev only');
+      }
+    `;
+    compareInlineThenFold(code, '', { nodeEnv: 'production' });
   });
 });

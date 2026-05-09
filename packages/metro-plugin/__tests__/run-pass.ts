@@ -15,6 +15,10 @@ export interface InlineOptions {
   inlinePlatform?: boolean;
   platform?: string;
   isWrapped?: boolean;
+  /** When set, replace `__DEV__` with this boolean literal in the inline pass. */
+  dev?: boolean;
+  /** When set, replace `process.env.NODE_ENV` with this string literal in the inline pass. */
+  nodeEnv?: string;
 }
 
 export interface InlineRequiresOptions {
@@ -28,19 +32,24 @@ type PassOpts =
   | { pass: 'experimentalImports' }
   | ({ pass: 'inline' } & InlineOptions)
   | ({ pass: 'inlineRequires' } & InlineRequiresOptions)
-  | { pass: 'constantFolding' };
+  | { pass: 'constantFolding' }
+  | ({ pass: 'inlineThenFold' } & InlineOptions);
 
 function pluginOptions(opts: PassOpts): Record<string, unknown> {
   switch (opts.pass) {
     case 'experimentalImports':
       return { experimentalImports: true };
-    case 'inline':
-      return {
+    case 'inline': {
+      const base: Record<string, unknown> = {
         inline: true,
         inlinePlatform: opts.inlinePlatform ?? false,
         platform: opts.platform ?? '',
         isWrapped: opts.isWrapped ?? false,
       };
+      if (opts.dev !== undefined) base.dev = opts.dev;
+      if (opts.nodeEnv !== undefined) base.nodeEnv = opts.nodeEnv;
+      return base;
+    }
     case 'inlineRequires':
       return {
         inlineRequires: true,
@@ -51,6 +60,18 @@ function pluginOptions(opts: PassOpts): Record<string, unknown> {
       };
     case 'constantFolding':
       return { constantFolding: true };
+    case 'inlineThenFold': {
+      const base: Record<string, unknown> = {
+        inline: true,
+        constantFolding: true,
+        inlinePlatform: opts.inlinePlatform ?? false,
+        platform: opts.platform ?? '',
+        isWrapped: opts.isWrapped ?? false,
+      };
+      if (opts.dev !== undefined) base.dev = opts.dev;
+      if (opts.nodeEnv !== undefined) base.nodeEnv = opts.nodeEnv;
+      return base;
+    }
   }
 }
 

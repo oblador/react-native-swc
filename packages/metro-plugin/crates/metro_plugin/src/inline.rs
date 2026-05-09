@@ -9,6 +9,13 @@ pub struct Options {
     pub is_wrapped: bool,
     pub require_name: String,
     pub platform: String,
+    /// When `Some(b)`, replace every non-shadowed `__DEV__` Identifier with
+    /// the boolean literal `b`. When `None`, leave `__DEV__` alone (relying
+    /// on a downstream pass — e.g. SWC's optimizer.globals — to substitute).
+    pub dev: Option<bool>,
+    /// When `Some(s)`, replace every non-shadowed `process.env.NODE_ENV`
+    /// MemberExpr with the string literal `s`. When `None`, leave it alone.
+    pub node_env: Option<String>,
 }
 
 /// Apply inline replacements: __DEV__, Platform.OS, Platform.select, process.env.NODE_ENV.
@@ -202,6 +209,26 @@ impl<'a> InlineVisitor<'a> {
         self.local_scopes.iter().any(|s| s.contains(name))
     }
 
+    /// Match `process.env.NODE_ENV` where `process` is a non-shadowed Identifier
+    /// (i.e. refers to the global). `env` and `NODE_ENV` are property accesses,
+    /// not bindings — only `process` itself can be shadowed. `var env = x` does
+    /// not affect `process.env`.
+    fn is_process_env_node_env(&self, member: &MemberExpr) -> bool {
+        if !is_prop_ident(&member.prop, "NODE_ENV") {
+            return false;
+        }
+        let Expr::Member(inner) = member.obj.as_ref() else {
+            return false;
+        };
+        if !is_prop_ident(&inner.prop, "env") {
+            return false;
+        }
+        match inner.obj.as_ref() {
+            Expr::Ident(id) => id.sym.as_ref() == "process" && !self.is_locally_shadowed(&id.sym),
+            _ => false,
+        }
+    }
+
     fn declare_local(&mut self, name: Atom) {
         if let Some(scope) = self.local_scopes.last_mut() {
             scope.insert(name);
@@ -271,11 +298,25 @@ impl<'a> InlineVisitor<'a> {
     }
 
     fn try_inline(&mut self, expr: &mut Expr) -> bool {
-        // Note: `__DEV__` and `process.env.NODE_ENV` are handled in
-        // production by SWC's optimizer globals/envs (configured in
-        // `src/swc.ts`). This pass only needs to cover the Platform
-        // substitutions that the optimizer can't express.
+        // `__DEV__` and `process.env.NODE_ENV` are substituted here when the
+        // caller asks for it (`opts.dev` / `opts.node_env` set). Doing it
+        // inside this pass — instead of leaving it to SWC's later
+        // `optimizer.globals` step — means subsequent sibling passes in the
+        // same plugin invocation (notably `constant_folding`) get to see the
+        // resulting literals and can fold `if (false) require('./dev')`
+        // branches away. The `optimizer.globals` substitution still runs
+        // afterwards as a safety belt for any path that bypasses this opt-in.
         match expr {
+            Expr::Ident(id) => {
+                if let Some(value) = self.opts.dev {
+                    if id.sym.as_ref() == "__DEV__" && !self.is_locally_shadowed(&id.sym) {
+                        *expr = bool_lit(value);
+                        return true;
+                    }
+                }
+                false
+            }
+
             Expr::Member(member) => {
                 if is_prop_ident(&member.prop, "OS")
                     && self.opts.inline_platform
@@ -284,6 +325,12 @@ impl<'a> InlineVisitor<'a> {
                     let s = self.opts.platform.clone();
                     *expr = str_lit(&s);
                     return true;
+                }
+                if let Some(node_env) = self.opts.node_env.as_deref() {
+                    if self.is_process_env_node_env(member) {
+                        *expr = str_lit(node_env);
+                        return true;
+                    }
                 }
                 false
             }
@@ -468,6 +515,13 @@ fn str_lit(s: &str) -> Expr {
         span: DUMMY_SP,
         value: Atom::from(s).into(),
         raw: None,
+    }))
+}
+
+fn bool_lit(value: bool) -> Expr {
+    Expr::Lit(Lit::Bool(Bool {
+        span: DUMMY_SP,
+        value,
     }))
 }
 

@@ -48,6 +48,10 @@ fn run_pipeline(mut program: swc_core::ecma::ast::Program) -> swc_core::ecma::as
             is_wrapped: false,
             require_name: "require".into(),
             platform: "ios".into(),
+            // Production always sets these, so the pipeline bench measures
+            // the same code path Metro hits.
+            dev: Some(false),
+            node_env: Some("production".into()),
         },
     );
     inline_requires::inline_requires(&mut program, &inline_requires::Options::default());

@@ -31,3 +31,16 @@ export function compareInlineRequires(
   const actual = format(runPass(code, { pass: 'inlineRequires', ...options }));
   expect(actual).toBe(format(expected));
 }
+
+/** Run inline + constantFolding in a single plugin invocation as they
+ *  appear back-to-back in the production pipeline (omitting the surrounding
+ *  experimentalImports / inlineRequires passes), so we can assert that
+ *  `if (__DEV__)` branches collapse to just the live arm. */
+export function compareInlineThenFold(
+  code: string,
+  expected: string,
+  options?: InlineOptions,
+): void {
+  const actual = format(runPass(code, { pass: 'inlineThenFold', ...options }));
+  expect(actual).toBe(format(expected));
+}

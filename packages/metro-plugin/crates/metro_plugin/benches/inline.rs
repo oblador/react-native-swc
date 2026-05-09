@@ -47,6 +47,8 @@ fn bench(c: &mut Criterion) {
                         is_wrapped: false,
                         require_name: "require".into(),
                         platform: "ios".into(),
+                        dev: None,
+                        node_env: None,
                     },
                 );
                 program
@@ -65,6 +67,30 @@ fn bench(c: &mut Criterion) {
                         is_wrapped: true,
                         require_name: "require".into(),
                         platform: "ios".into(),
+                        dev: None,
+                        node_env: None,
+                    },
+                );
+                program
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    // Variant that exercises the `__DEV__` / `process.env.NODE_ENV`
+    // substitution paths so regressions in those branches surface in CI.
+    group.bench_function("ios_unwrapped_with_dev_and_node_env", |b| {
+        b.iter_batched(
+            || parsed.clone(),
+            |mut program| {
+                inline_plugin(
+                    &mut program,
+                    &Options {
+                        inline_platform: true,
+                        is_wrapped: false,
+                        require_name: "require".into(),
+                        platform: "ios".into(),
+                        dev: Some(false),
+                        node_env: Some("production".into()),
                     },
                 );
                 program
