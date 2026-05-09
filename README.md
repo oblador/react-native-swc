@@ -5,7 +5,7 @@
 [![CI](https://github.com/oblador/react-native-swc/actions/workflows/ci.yml/badge.svg)](https://github.com/oblador/react-native-swc/actions/workflows/ci.yml)
 [![npm (@react-native-swc/core)](https://img.shields.io/npm/v/@react-native-swc/core?label=react-native-swc)](https://www.npmjs.com/package/react-native-swc)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Follow oblador on GitHub](https://img.shields.io/github/followers/oblador?label=Follow%20%40oblador&style=social)](https://img.shields.io/npm/v/@react-native-swc/worklets-plugin?label=%40react-native-swc%2Fworklets-plugin)
+[![Follow oblador on GitHub](https://img.shields.io/github/followers/oblador?label=Follow%20%40oblador&style=social)](https://github.com/oblador)
 [![Follow trastknast on X](https://img.shields.io/twitter/follow/trastknast?label=Follow%20%40trastknast&style=social)](https://twitter.com/trastknast)
 
 - 🔧 Drop-in replacement for Metro Babel transform worker and minifier
