@@ -3,6 +3,8 @@
 // total contribution to a single file's transform.
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use rustc_hash::FxHashMap;
+use swc_core::atoms::Atom;
 
 use metro_plugin::{constant_folding, experimental_imports, inline, inline_requires};
 
@@ -41,6 +43,8 @@ export const Tag = "screen";
 
 fn run_pipeline(mut program: swc_core::ecma::ast::Program) -> swc_core::ecma::ast::Program {
     experimental_imports::rewrite_imports(&mut program);
+    let mut envs: FxHashMap<Atom, String> = FxHashMap::default();
+    envs.insert(Atom::from("NODE_ENV"), "production".into());
     inline::inline_plugin(
         &mut program,
         &inline::Options {
@@ -48,6 +52,8 @@ fn run_pipeline(mut program: swc_core::ecma::ast::Program) -> swc_core::ecma::as
             is_wrapped: false,
             require_name: "require".into(),
             platform: "ios".into(),
+            dev: false,
+            envs,
         },
     );
     inline_requires::inline_requires(&mut program, &inline_requires::Options::default());

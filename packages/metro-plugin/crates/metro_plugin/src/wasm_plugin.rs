@@ -1,7 +1,11 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use std::collections::HashMap;
+
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use swc_core::{
+    atoms::Atom,
     ecma::ast::Program,
     plugin::{plugin_transform, proxies::TransformPluginProgramMetadata},
 };
@@ -24,6 +28,12 @@ struct PostTransformPluginOptions {
     inline_platform: bool,
     platform: String,
     is_wrapped: bool,
+    /// Drives `__DEV__` substitution inside the inline pass.
+    dev: bool,
+    /// `process.env.<KEY>` → string-literal values inlined by the inline
+    /// pass. Owns `NODE_ENV` (callers set it to `"development"` /
+    /// `"production"`) so the same plumbing covers user-defined env vars.
+    envs: HashMap<String, String>,
 
     // Inline-requires configuration.
     non_inlined_requires: Vec<String>,
@@ -50,6 +60,10 @@ pub fn process_transform(
     }
 
     if options.inline {
+        let mut envs: FxHashMap<Atom, String> = FxHashMap::default();
+        for (k, v) in options.envs {
+            envs.insert(Atom::from(k.as_str()), v);
+        }
         inline::inline_plugin(
             &mut program,
             &inline::Options {
@@ -57,6 +71,8 @@ pub fn process_transform(
                 is_wrapped: options.is_wrapped,
                 require_name: "require".to_string(),
                 platform: options.platform,
+                dev: options.dev,
+                envs,
             },
         );
     }

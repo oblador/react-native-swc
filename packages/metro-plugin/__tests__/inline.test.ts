@@ -676,4 +676,184 @@ describe('inline constants', () => {
       isWrapped: true,
     });
   });
+
+  describe('__DEV__', () => {
+    test('replaces __DEV__ in the code', () => {
+      const code = `
+        function a() {
+          var a = __DEV__ ? 1 : 2;
+          var b = a.__DEV__;
+          var c = function __DEV__(__DEV__) {};
+        }
+      `;
+
+      compareInline(code, code.replace(/__DEV__/, 'false'), { dev: false });
+    });
+
+    test("doesn't replace a local __DEV__ variable", () => {
+      const code = `
+        function a() {
+          var __DEV__ = false;
+          var a = __DEV__ ? 1 : 2;
+        }
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ in an object property key", () => {
+      const code = `
+        const x = { __DEV__: __DEV__ };
+      `;
+
+      const expected = `
+        const x = { __DEV__: false };
+      `;
+
+      compareInline(code, expected, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ in an object shorthand method name", () => {
+      const code = `
+        const x = {
+          __DEV__() { return __DEV__; },
+        };
+      `;
+
+      const expected = `
+        const x = {
+          __DEV__() { return false; },
+        };
+      `;
+
+      compareInline(code, expected, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ as a label of a block statement", () => {
+      const code = `
+        __DEV__: {
+          break __DEV__;
+        };
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ as the name of a function declaration or call", () => {
+      const code = `
+        function __DEV__() { return false; }
+        const isDev = __DEV__();
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ as the name of a class method", () => {
+      const code = `
+        class Test {
+          __DEV__() {}
+        }
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ as the name of an export alias", () => {
+      const code = `
+        const dev = true;
+        export { dev as __DEV__ };
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test("doesn't replace __DEV__ as the name of an optional property access", () => {
+      const code = `
+        x?.__DEV__;
+        x?.__DEV__();
+      `;
+
+      compareInline(code, code, { dev: false });
+    });
+
+    test('replaces __DEV__ with `true` in dev mode', () => {
+      const code = `var a = __DEV__;`;
+      compareInline(code, `var a = true;`, { dev: true });
+    });
+  });
+
+  describe('process.env', () => {
+    test('replaces process.env.NODE_ENV in the code', () => {
+      const code = `
+        function a() {
+          if (process.env.NODE_ENV === 'production') {
+            return require('Prod');
+          }
+
+          return require('Dev');
+        }
+      `;
+
+      compareInline(code, code.replace(/process\.env\.NODE_ENV/, '"production"'), {
+        dev: false,
+        envs: { NODE_ENV: 'production' },
+      });
+    });
+
+    test("doesn't replace process.env.NODE_ENV when it is the LHS of an assignment", () => {
+      const code = `
+        function a() {
+          process.env.NODE_ENV = 'production';
+        }
+      `;
+
+      compareInline(code, code, { dev: false, envs: { NODE_ENV: 'production' } });
+    });
+
+    test('replaces process.env.NODE_ENV when it is the RHS of an assignment', () => {
+      const code = `
+        function a() {
+          var env;
+          env = process.env.NODE_ENV;
+        }
+      `;
+
+      compareInline(code, code.replace(/process\.env\.NODE_ENV/, '"production"'), {
+        dev: false,
+        envs: { NODE_ENV: 'production' },
+      });
+    });
+
+    test('replaces user-supplied process.env.<KEY> entries', () => {
+      const code = `
+        const url = process.env.API_URL;
+        const region = process.env.REGION;
+      `;
+      const expected = `
+        const url = "https://example.com";
+        const region = "eu-west";
+      `;
+
+      compareInline(code, expected, {
+        dev: false,
+        envs: { API_URL: 'https://example.com', REGION: 'eu-west' },
+      });
+    });
+
+    test('does not replace process.env.<KEY> when the key is not configured', () => {
+      const code = `const x = process.env.UNKNOWN;`;
+      compareInline(code, code, { dev: false, envs: { NODE_ENV: 'production' } });
+    });
+
+    test('does not replace process.env.<KEY> when process is locally shadowed', () => {
+      const code = `
+        function a() {
+          var process = { env: { NODE_ENV: 'staging' } };
+          return process.env.NODE_ENV;
+        }
+      `;
+
+      compareInline(code, code, { dev: false, envs: { NODE_ENV: 'production' } });
+    });
+  });
 });
