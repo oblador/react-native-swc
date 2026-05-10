@@ -84,26 +84,31 @@ function selectParser(filename: string, source: string): ExtendedParserConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the `jsc.transform.optimizer.globals` maps that drive the constant-
- * inline pass. Emits values as JSON strings so SWC pastes them verbatim
- * into the AST — e.g. `{ API_URL: "https://x" }` becomes a StringLiteral.
+ * Build the `process.env.<KEY>` substitution map handed to the metro-plugin's
+ * inline pass. Values are unescaped raw strings — the plugin emits each as
+ * a `Lit::Str` directly, so `{ API_URL: "https://x" }` replaces
+ * `process.env.API_URL` with the literal `"https://x"`.
+ *
+ * Lives next to (and intentionally fed alongside) the `dev` flag because
+ * `__DEV__` and `process.env.NODE_ENV` are part of the same Metro contract:
+ * both are inlined at compile time so downstream constant folding can
+ * eliminate dead branches.
  */
-function buildOptimizerGlobals(
+function buildInlineEnvs(
   options: JsTransformOptions,
   filename: string,
   userConfig: SwcTransformerOptions | undefined,
-): { vars: Record<string, string>; envs: Record<string, string> } {
+): Record<string, string> {
   const { dev, platform, customTransformOptions } = options;
   const projectRoot = (options as unknown as { projectRoot?: string }).projectRoot;
 
-  const vars: Record<string, string> = { __DEV__: JSON.stringify(dev) };
   const envs: Record<string, string> = {
-    NODE_ENV: JSON.stringify(dev ? 'development' : 'production'),
-    EXPO_OS: JSON.stringify(platform),
+    NODE_ENV: dev ? 'development' : 'production',
+    EXPO_OS: platform ?? '',
   };
 
   if (projectRoot) {
-    envs.EXPO_PROJECT_ROOT = JSON.stringify(projectRoot);
+    envs.EXPO_PROJECT_ROOT = projectRoot;
 
     const routerRoot =
       typeof customTransformOptions?.routerRoot === 'string'
@@ -114,18 +119,18 @@ function buildOptimizerGlobals(
       customTransformOptions?.asyncRoutes === true;
     const absAppRoot = join(projectRoot, routerRoot);
 
-    envs.EXPO_ROUTER_APP_ROOT = JSON.stringify(relative(dirname(filename), absAppRoot));
-    envs.EXPO_ROUTER_ABS_APP_ROOT = JSON.stringify(absAppRoot);
-    envs.EXPO_ROUTER_IMPORT_MODE = JSON.stringify(asyncRoutes ? 'lazy' : 'sync');
+    envs.EXPO_ROUTER_APP_ROOT = relative(dirname(filename), absAppRoot);
+    envs.EXPO_ROUTER_ABS_APP_ROOT = absAppRoot;
+    envs.EXPO_ROUTER_IMPORT_MODE = asyncRoutes ? 'lazy' : 'sync';
   }
 
   if (userConfig?.envs) {
     for (const [k, v] of Object.entries(userConfig.envs)) {
-      envs[k] = JSON.stringify(v);
+      envs[k] = v;
     }
   }
 
-  return { vars, envs };
+  return envs;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +210,8 @@ interface PostTransformOptions {
   constantFolding: boolean;
   inlinePlatform: boolean;
   platform: string;
+  dev: boolean;
+  envs: Record<string, string>;
   nonInlinedRequires: string[];
   extraInlineableCalls: string[];
 }
@@ -243,7 +250,7 @@ export function runSwc(
   userConfig: SwcTransformerOptions | undefined,
 ): { code: string; map: MetroSourceMapSegmentTuple[] } {
   const { dev } = options;
-  const { vars, envs } = buildOptimizerGlobals(options, filename, userConfig);
+  const envs = buildInlineEnvs(options, filename, userConfig);
 
   const reactConfig: ReactConfig = {
     runtime: 'automatic',
@@ -261,6 +268,8 @@ export function runSwc(
     constantFolding: !dev,
     inlinePlatform: options.inlinePlatform,
     platform: options.platform ?? '',
+    dev,
+    envs,
     nonInlinedRequires: [...(options.nonInlinedRequires ?? [])],
     // SWC already handles interop inline; no extra helper calls are needed.
     extraInlineableCalls: [],
@@ -297,7 +306,6 @@ export function runSwc(
       },
       transform: {
         react: reactConfig,
-        optimizer: { globals: { vars, envs } },
       },
       externalHelpers: false,
     },

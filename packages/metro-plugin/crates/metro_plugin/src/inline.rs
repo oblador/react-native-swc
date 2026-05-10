@@ -9,9 +9,16 @@ pub struct Options {
     pub is_wrapped: bool,
     pub require_name: String,
     pub platform: String,
+    /// Drives `__DEV__` substitution: every unshadowed reference becomes
+    /// this boolean literal.
+    pub dev: bool,
+    /// `process.env.<KEY>` → string-literal map. Values are inserted as
+    /// `Lit::Str` exactly, so callers should pass the unescaped string.
+    /// `NODE_ENV` is just a key in here — there is no separate path for it.
+    pub envs: FxHashMap<Atom, String>,
 }
 
-/// Apply inline replacements: __DEV__, Platform.OS, Platform.select, process.env.NODE_ENV.
+/// Apply inline replacements: __DEV__, Platform.OS, Platform.select, process.env.<KEY>.
 /// Mirrors Metro's `inline-plugin.js`.
 pub fn inline_plugin(program: &mut Program, opts: &Options) {
     let top_level_bindings = scan_top_level_bindings(program, opts);
@@ -271,11 +278,23 @@ impl<'a> InlineVisitor<'a> {
     }
 
     fn try_inline(&mut self, expr: &mut Expr) -> bool {
-        // Note: `__DEV__` and `process.env.NODE_ENV` are handled in
-        // production by SWC's optimizer globals/envs (configured in
-        // `src/swc.ts`). This pass only needs to cover the Platform
-        // substitutions that the optimizer can't express.
         match expr {
+            // `__DEV__` → boolean literal (when not shadowed). Matches
+            // Metro's inline-plugin: only bare references in expression
+            // position are rewritten — property keys, function/parameter
+            // names, optional-chain props, etc. live in non-Expr positions
+            // and are skipped by SWC's traversal automatically.
+            Expr::Ident(id) => {
+                if id.sym.as_ref() == "__DEV__" && !self.is_locally_shadowed(&id.sym) {
+                    *expr = Expr::Lit(Lit::Bool(Bool {
+                        span: DUMMY_SP,
+                        value: self.opts.dev,
+                    }));
+                    return true;
+                }
+                false
+            }
+
             Expr::Member(member) => {
                 if is_prop_ident(&member.prop, "OS")
                     && self.opts.inline_platform
@@ -284,6 +303,16 @@ impl<'a> InlineVisitor<'a> {
                     let s = self.opts.platform.clone();
                     *expr = str_lit(&s);
                     return true;
+                }
+                // `process.env.<KEY>` → string literal. We don't replace the
+                // LHS of an assignment (`process.env.X = ...`) because
+                // `visit_mut_assign_expr` only descends into the RHS.
+                if let Some(key) = self.try_match_process_env(member) {
+                    if let Some(value) = self.opts.envs.get(&key) {
+                        let s = value.clone();
+                        *expr = str_lit(&s);
+                        return true;
+                    }
                 }
                 false
             }
@@ -300,6 +329,32 @@ impl<'a> InlineVisitor<'a> {
 
             _ => false,
         }
+    }
+
+    /// Match `process.env.<KEY>` and return `<KEY>` as an Atom. Returns
+    /// `None` if `process` is locally shadowed, the chain is optional, or
+    /// any segment isn't a static identifier property.
+    fn try_match_process_env(&self, member: &MemberExpr) -> Option<Atom> {
+        let key = match &member.prop {
+            MemberProp::Ident(id) => id.sym.clone(),
+            _ => return None,
+        };
+        let inner = match member.obj.as_ref() {
+            Expr::Member(m) => m,
+            _ => return None,
+        };
+        if !is_prop_ident(&inner.prop, "env") {
+            return None;
+        }
+        match inner.obj.as_ref() {
+            Expr::Ident(id) if id.sym.as_ref() == "process" => {
+                if self.is_locally_shadowed(&id.sym) {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+        Some(key)
     }
 
     fn try_platform_select(&self, call: &CallExpr) -> Option<Expr> {

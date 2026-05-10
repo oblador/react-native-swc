@@ -1,6 +1,14 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use rustc_hash::FxHashMap;
+use swc_core::atoms::Atom;
 
 use metro_plugin::inline::{inline_plugin, Options};
+
+fn make_envs() -> FxHashMap<Atom, String> {
+    let mut envs = FxHashMap::default();
+    envs.insert(Atom::from("NODE_ENV"), "production".into());
+    envs
+}
 
 #[path = "common.rs"]
 mod common;
@@ -47,6 +55,8 @@ fn bench(c: &mut Criterion) {
                         is_wrapped: false,
                         require_name: "require".into(),
                         platform: "ios".into(),
+                        dev: false,
+                        envs: make_envs(),
                     },
                 );
                 program
@@ -65,6 +75,8 @@ fn bench(c: &mut Criterion) {
                         is_wrapped: true,
                         require_name: "require".into(),
                         platform: "ios".into(),
+                        dev: false,
+                        envs: make_envs(),
                     },
                 );
                 program

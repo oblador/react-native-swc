@@ -15,6 +15,8 @@ export interface InlineOptions {
   inlinePlatform?: boolean;
   platform?: string;
   isWrapped?: boolean;
+  dev?: boolean;
+  envs?: Record<string, string>;
 }
 
 export interface InlineRequiresOptions {
@@ -40,6 +42,8 @@ function pluginOptions(opts: PassOpts): Record<string, unknown> {
         inlinePlatform: opts.inlinePlatform ?? false,
         platform: opts.platform ?? '',
         isWrapped: opts.isWrapped ?? false,
+        dev: opts.dev ?? false,
+        envs: opts.envs ?? {},
       };
     case 'inlineRequires':
       return {
