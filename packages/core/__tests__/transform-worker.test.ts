@@ -12,8 +12,12 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { transformSync } from '@swc/core';
 import { transform, transformRequires, collectRequireRefs } from '../src/transform-worker';
+import { runSwc } from '../src/swc';
 import type { JsTransformerConfig, JsTransformOptions } from '../src/types';
 
 const baseConfig: JsTransformerConfig = {
@@ -46,6 +50,48 @@ const baseTransformOptions: JsTransformOptions = {
   type: 'module',
   unstable_transformProfile: 'default',
 };
+
+describe('Expo manifest env', () => {
+  test('inlines process.env.APP_MANIFEST for web transforms', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'rn-swc-expo-manifest-'));
+    try {
+      writeFileSync(join(projectRoot, 'package.json'), JSON.stringify({ name: 'manifest-test' }));
+      writeFileSync(
+        join(projectRoot, 'app.json'),
+        JSON.stringify({
+          expo: {
+            name: 'Native Name',
+            slug: 'manifest-test',
+            orientation: 'portrait',
+            ios: { bundleIdentifier: 'dev.example.app' },
+            android: { package: 'dev.example.app' },
+            hooks: { postPublish: [] },
+            web: { shortName: 'Web Name' },
+            extra: { apiBase: 'https://api.example.test' },
+          },
+        }),
+      );
+
+      const { code } = runSwc(
+        'export const manifest = process.env.APP_MANIFEST || {};',
+        join(projectRoot, 'index.js'),
+        {
+          ...baseTransformOptions,
+          platform: 'web',
+        } as JsTransformOptions,
+        undefined,
+        projectRoot,
+      );
+
+      expect(code).toContain('"apiBase":"https://api.example.test"');
+      expect(code).toContain('"shortName":"Web Name"');
+      expect(code).not.toContain('bundleIdentifier');
+      expect(code).not.toContain('postPublish');
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // collectRequireRefs / transformRequires — project-specific helper behaviour
