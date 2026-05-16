@@ -1,8 +1,8 @@
-import type { MetroConfig } from 'metro-config';
+import type { MetroConfig } from "metro-config";
 
-import type { SwcTransformerOptions } from './transform-worker';
+import type { SwcTransformerOptions } from "./transform-worker";
 
-export type { SwcTransformerOptions } from './transform-worker';
+export type { SwcTransformerOptions } from "./transform-worker";
 
 // ---------------------------------------------------------------------------
 // Metro config helper
@@ -34,19 +34,22 @@ export type { SwcTransformerOptions } from './transform-worker';
  * ```
  */
 export function withSwcTransformer(
-  config: MetroConfig,
+  config: MetroConfig | Promise<MetroConfig>,
   swcConfig?: SwcTransformerOptions,
-): MetroConfig {
-  return {
-    ...config,
-    transformerPath: require.resolve('./transform-worker'),
-    transformer: {
-      ...config.transformer,
-      minifierPath: require.resolve('./minifier'),
-      minifierConfig: {
-        ...config.transformer?.minifierConfig,
+): () => Promise<MetroConfig> {
+  return async function () {
+    const resolvedConfig = await config;
+    return {
+      ...resolvedConfig,
+      transformerPath: require.resolve("./transform-worker"),
+      transformer: {
+        ...resolvedConfig.transformer,
+        minifierPath: require.resolve("./minifier"),
+        minifierConfig: {
+          ...resolvedConfig.transformer?.minifierConfig,
+        },
+        ...(swcConfig ? { swcConfig } : {}),
       },
-      ...(swcConfig ? { swcConfig } : {}),
-    },
+    };
   };
 }
