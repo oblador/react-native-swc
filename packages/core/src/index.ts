@@ -8,6 +8,21 @@ export type { SwcTransformerOptions } from './transform-worker';
 // Metro config helper
 // ---------------------------------------------------------------------------
 
+function applySwcTransformer(config: MetroConfig, swcConfig?: SwcTransformerOptions): MetroConfig {
+  return {
+    ...config,
+    transformerPath: require.resolve('./transform-worker'),
+    transformer: {
+      ...config.transformer,
+      minifierPath: require.resolve('./minifier'),
+      minifierConfig: {
+        ...config.transformer?.minifierConfig,
+      },
+      ...(swcConfig ? { swcConfig } : {}),
+    },
+  };
+}
+
 /**
  * Wrap a Metro configuration object so that SWC is used for transpilation
  * and minification.
@@ -33,20 +48,12 @@ export type { SwcTransformerOptions } from './transform-worker';
  * );
  * ```
  */
-export function withSwcTransformer(
-  config: MetroConfig,
+export function withSwcTransformer<T extends MetroConfig | Promise<MetroConfig>>(
+  config: T,
   swcConfig?: SwcTransformerOptions,
-): MetroConfig {
-  return {
-    ...config,
-    transformerPath: require.resolve('./transform-worker'),
-    transformer: {
-      ...config.transformer,
-      minifierPath: require.resolve('./minifier'),
-      minifierConfig: {
-        ...config.transformer?.minifierConfig,
-      },
-      ...(swcConfig ? { swcConfig } : {}),
-    },
-  };
+): T {
+  if ('then' in config) {
+    return config.then((resolvedConfig) => applySwcTransformer(resolvedConfig, swcConfig)) as T;
+  }
+  return applySwcTransformer(config, swcConfig) as T;
 }
