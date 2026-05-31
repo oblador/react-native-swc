@@ -26,8 +26,9 @@ export function compareConstantFolding(code: string, expected: string): void {
 export function compareInlineRequires(
   code: string,
   expected: string,
-  options?: InlineRequiresOptions,
+  options?: InlineRequiresOptions & { jsx?: boolean },
 ): void {
-  const actual = format(runPass(code, { pass: 'inlineRequires', ...options }));
-  expect(actual).toBe(format(expected));
+  const jsx = options?.jsx ?? false;
+  const actual = format(runPass(code, { pass: 'inlineRequires', ...options, jsx }), { jsx });
+  expect(actual).toBe(format(expected, { jsx }));
 }

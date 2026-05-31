@@ -82,20 +82,29 @@ pub fn inline_requires(program: &mut Program, opts: &Options) {
             candidates: &candidates,
             inlineable_calls: &inlineable_calls,
             local_scopes: vec![FxHashSet::default()],
+            preserve_on_shadow: vec![false],
             requires_shadowed: 0,
             replaced: FxHashSet::default(),
             skip: FxHashSet::default(),
+            keep_decl: FxHashSet::default(),
             shadowed_at_ref: FxHashSet::default(),
+            jsx_helpers: FxHashMap::default(),
+            used_names: collect_ident_symbols(program),
         };
         program.visit_mut_with(&mut replacer);
 
         let replaced = replacer.replaced;
-        let mut skip = replacer.skip;
-        skip.extend(replacer.shadowed_at_ref);
+        let mut keep_decl = replacer.keep_decl;
+        keep_decl.extend(replacer.skip);
+        keep_decl.extend(replacer.shadowed_at_ref);
+        let jsx_helpers = replacer.jsx_helpers;
 
-        let any_change = !replaced.is_empty() || candidates.iter().any(|(n, _)| !skip.contains(n));
+        let any_change = !replaced.is_empty()
+            || !jsx_helpers.is_empty()
+            || candidates.iter().any(|(n, _)| !keep_decl.contains(n));
 
-        remove_declarations(program, &candidates, &skip);
+        remove_declarations(program, &candidates, &keep_decl);
+        insert_jsx_helpers(program, jsx_helpers);
 
         if !any_change {
             break;
@@ -123,6 +132,13 @@ struct Candidate {
     /// When true, references are wrapped as `(name || (name = init))` and a
     /// `var name;` is hoisted to the top of the program.
     is_memoized: bool,
+}
+
+#[derive(Clone, Debug)]
+struct JsxHelper {
+    helper: Atom,
+    prop: Atom,
+    value: Box<Expr>,
 }
 
 // ---------------------------------------------------------------------------
@@ -323,24 +339,64 @@ struct InlineReplacer<'a> {
     inlineable_calls: &'a FxHashSet<Atom>,
     /// Stack of locally declared names per scope.
     local_scopes: Vec<FxHashSet<Atom>>,
+    /// Parallel to `local_scopes`: when true, a shadowed reference keeps the
+    /// module-level declaration as a fallback for hygiene-mismatched refs from
+    /// upstream plugins. Function scopes need this; block/loop/catch lexical
+    /// scopes do not.
+    preserve_on_shadow: Vec<bool>,
     /// How many nested scopes have re-declared the require function.
     requires_shadowed: usize,
     /// Set of candidate names that had at least one successful replacement.
     replaced: FxHashSet<Atom>,
-    /// Set of candidate names that should not be removed (reassigned).
+    /// Set of candidate names that should neither be inlined nor removed
+    /// (reassigned / directly updated).
     skip: FxHashSet<Atom>,
+    /// Set of candidate names that must keep the module-level declaration
+    /// because they appear in a binding-sensitive AST position, while ordinary
+    /// expression references may still be inlined.
+    keep_decl: FxHashSet<Atom>,
     /// Candidates whose name also appears as a local binding somewhere in the
     /// tree. The module-level declaration is kept for these — uses at
     /// non-shadowed sites are still inlined, but a "fallback" binding
     /// survives for references SWC's resolver may leave dangling (e.g. the
     /// Reanimated worklets plugin's ctxt-mismatched closure refs).
     shadowed_at_ref: FxHashSet<Atom>,
+    /// JSX element names cannot contain arbitrary expressions, so `<Foo />`
+    /// cannot be rewritten directly to `<require("m").Foo />`. Instead, JSX
+    /// roots are rewritten through a generated object getter:
+    ///
+    ///   var _jsxImportFoo = { get Foo() { return require("m").Foo; } };
+    ///   <_jsxImportFoo.Foo />
+    ///
+    /// The later JSX transform turns that into a normal property access at
+    /// the tag use site, matching Babel inline-requires' fresh lookup behavior
+    /// without adding a second SWC pass.
+    jsx_helpers: FxHashMap<Atom, JsxHelper>,
+    /// All identifier-like names already present in the program, plus helper
+    /// names allocated during this visit. Used to avoid introducing a helper
+    /// that a nested scope could shadow.
+    used_names: FxHashSet<Atom>,
 }
 
 impl<'a> InlineReplacer<'a> {
-    fn is_locally_shadowed(&self, name: &Atom) -> bool {
+    fn shadowing_scope_idx(&self, name: &Atom) -> Option<usize> {
         // Skip the outermost scope (index 0 = program/module level)
-        self.local_scopes.iter().skip(1).any(|s| s.contains(name))
+        self.local_scopes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find_map(|(idx, scope)| scope.contains(name).then_some(idx))
+    }
+
+    fn is_locally_shadowed(&self, name: &Atom) -> bool {
+        self.shadowing_scope_idx(name).is_some()
+    }
+
+    fn shadowed_ref_needs_fallback(&self, name: &Atom) -> bool {
+        self.shadowing_scope_idx(name)
+            .and_then(|idx| self.preserve_on_shadow.get(idx))
+            .copied()
+            .unwrap_or(false)
     }
 
     fn declare_local(&mut self, name: Atom) {
@@ -349,8 +405,9 @@ impl<'a> InlineReplacer<'a> {
         }
     }
 
-    fn push_scope(&mut self) {
+    fn push_scope(&mut self, preserve_on_shadow: bool) {
         self.local_scopes.push(FxHashSet::default());
+        self.preserve_on_shadow.push(preserve_on_shadow);
     }
 
     fn pop_scope(&mut self) {
@@ -361,6 +418,7 @@ impl<'a> InlineReplacer<'a> {
                 }
             }
         }
+        self.preserve_on_shadow.pop();
     }
 
     fn build_substitute(&self, name: &Atom, candidate: &Candidate) -> Expr {
@@ -412,7 +470,9 @@ impl<'a> InlineReplacer<'a> {
             }
             let name = id.sym.clone();
             if self.is_locally_shadowed(&name) {
-                self.shadowed_at_ref.insert(name);
+                if self.shadowed_ref_needs_fallback(&name) {
+                    self.shadowed_at_ref.insert(name);
+                }
                 return false;
             }
             if self.requires_shadowed > 0 {
@@ -439,7 +499,7 @@ impl<'a> VisitMut for InlineReplacer<'a> {
     }
 
     fn visit_mut_function(&mut self, f: &mut Function) {
-        self.push_scope();
+        self.push_scope(true);
         for param in &f.params {
             collect_pat_atoms(&param.pat, &mut |n| {
                 if self.inlineable_calls.contains(n) {
@@ -461,7 +521,7 @@ impl<'a> VisitMut for InlineReplacer<'a> {
     }
 
     fn visit_mut_arrow_expr(&mut self, f: &mut ArrowExpr) {
-        self.push_scope();
+        self.push_scope(true);
         for param in &f.params {
             collect_pat_atoms(param, &mut |n| {
                 if self.inlineable_calls.contains(n) {
@@ -479,6 +539,70 @@ impl<'a> VisitMut for InlineReplacer<'a> {
             });
         }
         f.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
+        self.push_scope(false);
+        collect_block_lexical_atoms(block, &mut |n| {
+            if self.inlineable_calls.contains(n) {
+                self.requires_shadowed += 1;
+            }
+            self.declare_local(n.clone());
+        });
+        block.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_catch_clause(&mut self, clause: &mut CatchClause) {
+        self.push_scope(false);
+        if let Some(param) = &clause.param {
+            collect_pat_atoms(param, &mut |n| {
+                if self.inlineable_calls.contains(n) {
+                    self.requires_shadowed += 1;
+                }
+                self.declare_local(n.clone());
+            });
+        }
+        clause.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_for_stmt(&mut self, stmt: &mut ForStmt) {
+        self.push_scope(false);
+        if let Some(VarDeclOrExpr::VarDecl(vd)) = &stmt.init {
+            collect_lexical_var_decl(vd, &mut |n| {
+                if self.inlineable_calls.contains(n) {
+                    self.requires_shadowed += 1;
+                }
+                self.declare_local(n.clone());
+            });
+        }
+        stmt.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_for_in_stmt(&mut self, stmt: &mut ForInStmt) {
+        self.push_scope(false);
+        collect_lexical_for_head(&stmt.left, &mut |n| {
+            if self.inlineable_calls.contains(n) {
+                self.requires_shadowed += 1;
+            }
+            self.declare_local(n.clone());
+        });
+        stmt.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_for_of_stmt(&mut self, stmt: &mut ForOfStmt) {
+        self.push_scope(false);
+        collect_lexical_for_head(&stmt.left, &mut |n| {
+            if self.inlineable_calls.contains(n) {
+                self.requires_shadowed += 1;
+            }
+            self.declare_local(n.clone());
+        });
+        stmt.visit_mut_children_with(self);
         self.pop_scope();
     }
 
@@ -501,11 +625,16 @@ impl<'a> VisitMut for InlineReplacer<'a> {
     }
 
     fn visit_mut_update_expr(&mut self, n: &mut UpdateExpr) {
+        // Direct `X++` on a candidate must keep the `var X = require(...)`
+        // binding around — `(require("m").X)++` is not a valid update target.
+        // For non-Ident args (`X.y++`, `X[i]++`, …) we still need to recurse
+        // so the candidate `X` inside the member expression gets inlined.
         if let Expr::Ident(id) = n.arg.as_ref() {
             if self.candidates.contains_key(&id.sym) && !self.is_locally_shadowed(&id.sym) {
                 self.skip.insert(id.sym.clone());
             }
         }
+        n.visit_mut_children_with(self);
     }
 
     fn visit_mut_prop(&mut self, prop: &mut Prop) {
@@ -534,26 +663,31 @@ impl<'a> VisitMut for InlineReplacer<'a> {
 
     // JSX runs BEFORE SWC's JSX → `jsxDEV(...)` transform, so opening/closing
     // element names and JSX member expressions still carry raw identifiers
-    // that JSX grammar requires. We can't substitute a `require(...).prop`
-    // call into a JSX name — only identifiers are valid there — so any
-    // candidate referenced as the root of a JSX element name must keep its
-    // declaration or the post-JSX-transform output ends up with a dangling
-    // `RootTagContext` reference and throws a ReferenceError at runtime.
+    // that JSX grammar constrains. We can't substitute a `require(...).prop`
+    // call into a JSX name directly, so candidate roots are rewritten through
+    // generated getter objects (`<_jsxImportFoo.Foo />`). The later JSX pass
+    // lowers that member expression into an ordinary property access at the
+    // tag use site, preserving inline-requires' fresh-read behavior.
     //
-    // Mark such candidates as `skip` so the declaration survives phase 3.
     // We still need to visit children so nested expressions (JSX attribute
     // values, child expressions, etc.) get their normal inlining.
     fn visit_mut_jsx_element_name(&mut self, name: &mut JSXElementName) {
         match name {
-            JSXElementName::Ident(id) => self.mark_unreplaceable_ref(&id.sym),
-            JSXElementName::JSXMemberExpr(m) => self.mark_jsx_member_root(&m.obj),
+            JSXElementName::Ident(id) => {
+                if should_rewrite_jsx_ident(&id.sym) {
+                    if let Some(rewritten) = self.rewrite_jsx_ident(id) {
+                        *name = rewritten;
+                    }
+                }
+            }
+            JSXElementName::JSXMemberExpr(m) => self.rewrite_jsx_member_root(&mut m.obj),
             JSXElementName::JSXNamespacedName(_) => {}
         }
         name.visit_mut_children_with(self);
     }
 
     fn visit_mut_jsx_member_expr(&mut self, n: &mut JSXMemberExpr) {
-        self.mark_jsx_member_root(&n.obj);
+        self.rewrite_jsx_member_root(&mut n.obj);
         n.visit_mut_children_with(self);
     }
 
@@ -582,21 +716,156 @@ impl<'a> VisitMut for InlineReplacer<'a> {
 
 impl<'a> InlineReplacer<'a> {
     /// Mark a candidate as `skip` when its identifier appears in an AST
-    /// position `visit_mut_expr` can't reach (JSX element names, export
-    /// specifiers, …). The declaration must survive phase 3 so downstream
-    /// passes — SWC's JSX transform, SWC's CJS export helper — can still
-    /// resolve the name.
+    /// position `visit_mut_expr` can't reach (export specifiers, …). The
+    /// declaration must survive phase 3 so downstream passes — e.g. SWC's CJS
+    /// export helper — can still resolve the name.
     fn mark_unreplaceable_ref(&mut self, name: &Atom) {
         if self.candidates.contains_key(name) && !self.is_locally_shadowed(name) {
-            self.skip.insert(name.clone());
+            self.keep_decl.insert(name.clone());
         }
     }
 
-    fn mark_jsx_member_root(&mut self, obj: &JSXObject) {
+    fn rewrite_jsx_ident(&mut self, id: &Ident) -> Option<JSXElementName> {
+        let helper = self.record_jsx_helper(&id.sym)?;
+        Some(JSXElementName::JSXMemberExpr(JSXMemberExpr {
+            span: id.span,
+            obj: JSXObject::Ident(Ident::new(
+                helper.helper.clone(),
+                id.span,
+                Default::default(),
+            )),
+            prop: IdentName::new(helper.prop, id.span),
+        }))
+    }
+
+    fn rewrite_jsx_member_root(&mut self, obj: &mut JSXObject) {
         match obj {
-            JSXObject::Ident(id) => self.mark_unreplaceable_ref(&id.sym),
-            JSXObject::JSXMemberExpr(inner) => self.mark_jsx_member_root(&inner.obj),
+            JSXObject::Ident(id) => {
+                let span = id.span;
+                let sym = id.sym.clone();
+                if let Some(helper) = self.record_jsx_helper(&sym) {
+                    *obj = JSXObject::JSXMemberExpr(Box::new(JSXMemberExpr {
+                        span,
+                        obj: JSXObject::Ident(Ident::new(
+                            helper.helper.clone(),
+                            span,
+                            Default::default(),
+                        )),
+                        prop: IdentName::new(helper.prop, span),
+                    }));
+                }
+            }
+            JSXObject::JSXMemberExpr(inner) => self.rewrite_jsx_member_root(&mut inner.obj),
         }
+    }
+
+    fn record_jsx_helper(&mut self, name: &Atom) -> Option<JsxHelper> {
+        if self.is_locally_shadowed(name) {
+            return None;
+        }
+        if self.requires_shadowed > 0 || self.skip.contains(name) {
+            self.keep_decl.insert(name.clone());
+            return None;
+        }
+        if let Some(existing) = self.jsx_helpers.get(name) {
+            return Some(existing.clone());
+        }
+        let candidate = self.candidates.get(name)?;
+        let helper = make_jsx_helper_name(name, &mut self.used_names);
+        let jsx_helper = JsxHelper {
+            helper,
+            prop: name.clone(),
+            value: Box::new(self.build_substitute(name, candidate)),
+        };
+        self.jsx_helpers.insert(name.clone(), jsx_helper.clone());
+        Some(jsx_helper)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSX helper generation
+// ---------------------------------------------------------------------------
+
+fn should_rewrite_jsx_ident(name: &Atom) -> bool {
+    name.as_ref() != "this" && !name.as_ref().starts_with(|c: char| c.is_ascii_lowercase())
+}
+
+fn make_jsx_helper_name(name: &Atom, used_names: &mut FxHashSet<Atom>) -> Atom {
+    let base = format!("_jsxImport{}", name.as_ref());
+    let mut i = 0usize;
+    loop {
+        let candidate = if i == 0 {
+            Atom::from(base.as_str())
+        } else {
+            Atom::from(format!("{base}{i}").as_str())
+        };
+        if used_names.insert(candidate.clone()) {
+            return candidate;
+        }
+        i += 1;
+    }
+}
+
+fn insert_jsx_helpers(program: &mut Program, helpers: FxHashMap<Atom, JsxHelper>) {
+    if helpers.is_empty() {
+        return;
+    }
+
+    // Sort by original binding name for deterministic output.
+    let mut sorted: Vec<(Atom, JsxHelper)> = helpers.into_iter().collect();
+    sorted.sort_by(|a, b| a.0.as_ref().cmp(b.0.as_ref()));
+
+    let decls: Vec<VarDeclarator> = sorted
+        .into_iter()
+        .map(|(_, helper)| jsx_helper_declarator(helper))
+        .collect();
+
+    let stmt = Stmt::Decl(Decl::Var(Box::new(VarDecl {
+        span: DUMMY_SP,
+        kind: VarDeclKind::Var,
+        declare: false,
+        decls,
+        ctxt: Default::default(),
+    })));
+
+    match program {
+        Program::Module(m) => {
+            let idx = module_directive_prologue_len(&m.body);
+            m.body.insert(idx, ModuleItem::Stmt(stmt));
+        }
+        Program::Script(s) => {
+            let idx = stmt_directive_prologue_len(&s.body);
+            s.body.insert(idx, stmt);
+        }
+    }
+}
+
+fn jsx_helper_declarator(helper: JsxHelper) -> VarDeclarator {
+    let getter = GetterProp {
+        span: DUMMY_SP,
+        key: PropName::Ident(IdentName::new(helper.prop, DUMMY_SP)),
+        type_ann: None,
+        body: Some(BlockStmt {
+            span: DUMMY_SP,
+            ctxt: Default::default(),
+            stmts: vec![Stmt::Return(ReturnStmt {
+                span: DUMMY_SP,
+                arg: Some(helper.value),
+            })],
+        }),
+    };
+
+    VarDeclarator {
+        span: DUMMY_SP,
+        name: Pat::Ident(BindingIdent {
+            id: Ident::new(helper.helper, DUMMY_SP, Default::default()),
+            type_ann: None,
+        }),
+        init: Some(Box::new(Expr::Object(ObjectLit {
+            span: DUMMY_SP,
+            props: vec![PropOrSpread::Prop(Box::new(Prop::Getter(getter)))],
+        }))),
+        definite: false,
     }
 }
 
@@ -717,11 +986,13 @@ fn hoist_memo_vars(program: &mut Program, names: &FxHashSet<Atom>) {
 
     match program {
         Program::Module(m) => {
+            let idx = module_directive_prologue_len(&m.body);
             m.body
-                .insert(0, ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl))));
+                .insert(idx, ModuleItem::Stmt(Stmt::Decl(Decl::Var(var_decl))));
         }
         Program::Script(s) => {
-            s.body.insert(0, Stmt::Decl(Decl::Var(var_decl)));
+            let idx = stmt_directive_prologue_len(&s.body);
+            s.body.insert(idx, Stmt::Decl(Decl::Var(var_decl)));
         }
     }
 }
@@ -863,6 +1134,48 @@ impl<'a> VisitMut for BulkIdentRenamer<'a> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn collect_ident_symbols(program: &Program) -> FxHashSet<Atom> {
+    use swc_core::ecma::visit::{Visit, VisitWith};
+
+    struct Collector {
+        names: FxHashSet<Atom>,
+    }
+
+    impl Visit for Collector {
+        fn visit_ident(&mut self, id: &Ident) {
+            self.names.insert(id.sym.clone());
+        }
+    }
+
+    let mut collector = Collector {
+        names: FxHashSet::default(),
+    };
+    program.visit_with(&mut collector);
+    collector.names
+}
+
+fn module_directive_prologue_len(body: &[ModuleItem]) -> usize {
+    body.iter()
+        .take_while(|item| match item {
+            ModuleItem::Stmt(stmt) => is_directive_stmt(stmt),
+            _ => false,
+        })
+        .count()
+}
+
+fn stmt_directive_prologue_len(body: &[Stmt]) -> usize {
+    body.iter()
+        .take_while(|stmt| is_directive_stmt(stmt))
+        .count()
+}
+
+fn is_directive_stmt(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::Expr(ExprStmt { expr, .. }) if matches!(expr.as_ref(), Expr::Lit(Lit::Str(_)))
+    )
+}
+
 fn collect_pat_atoms(pat: &Pat, emit: &mut dyn FnMut(&Atom)) {
     match pat {
         Pat::Ident(bi) => emit(&bi.id.sym),
@@ -889,6 +1202,38 @@ fn collect_pat_atoms(pat: &Pat, emit: &mut dyn FnMut(&Atom)) {
 fn collect_fn_var_atoms(block: &BlockStmt, emit: &mut dyn FnMut(&Atom)) {
     for stmt in &block.stmts {
         collect_var_in_stmt(stmt, emit);
+    }
+}
+
+fn collect_block_lexical_atoms(block: &BlockStmt, emit: &mut dyn FnMut(&Atom)) {
+    for stmt in &block.stmts {
+        collect_lexical_in_stmt(stmt, emit);
+    }
+}
+
+fn collect_lexical_in_stmt(stmt: &Stmt, emit: &mut dyn FnMut(&Atom)) {
+    match stmt {
+        Stmt::Decl(Decl::Var(vd)) if vd.kind != VarDeclKind::Var => {
+            collect_lexical_var_decl(vd, emit);
+        }
+        Stmt::Decl(Decl::Class(cd)) => {
+            emit(&cd.ident.sym);
+        }
+        _ => {}
+    }
+}
+
+fn collect_lexical_for_head(head: &ForHead, emit: &mut dyn FnMut(&Atom)) {
+    if let ForHead::VarDecl(vd) = head {
+        collect_lexical_var_decl(vd, emit);
+    }
+}
+
+fn collect_lexical_var_decl(vd: &VarDecl, emit: &mut dyn FnMut(&Atom)) {
+    if vd.kind != VarDeclKind::Var {
+        for d in &vd.decls {
+            collect_pat_atoms(&d.name, emit);
+        }
     }
 }
 
