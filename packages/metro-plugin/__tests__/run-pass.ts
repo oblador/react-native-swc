@@ -60,22 +60,22 @@ function pluginOptions(opts: PassOpts): Record<string, unknown> {
 
 /** Parse + re-emit `code` through SWC with no plugin. Used to normalize the
  *  "expected" side of a comparison so assertions match canonical formatting. */
-export function format(code: string): string {
+export function format(code: string, opts: { jsx?: boolean } = {}): string {
   return transformSync(code, {
     swcrc: false,
     configFile: false,
-    jsc: { parser: { syntax: 'ecmascript' }, target: 'es2022' },
+    jsc: { parser: { syntax: 'ecmascript', jsx: opts.jsx ?? false }, target: 'es2022' },
     isModule: true,
   }).code;
 }
 
 /** Run the metro-post plugin with exactly one pass enabled. */
-export function runPass(code: string, opts: PassOpts): string {
+export function runPass(code: string, opts: PassOpts & { jsx?: boolean }): string {
   const result = transformSync(code, {
     swcrc: false,
     configFile: false,
     jsc: {
-      parser: { syntax: 'ecmascript' },
+      parser: { syntax: 'ecmascript', jsx: opts.jsx ?? false },
       target: 'es2022',
       experimental: {
         plugins: [[PLUGIN_PATH, pluginOptions(opts)]],

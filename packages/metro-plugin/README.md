@@ -6,7 +6,7 @@ SWC WASM plugin that implements Metro's post-transform passes:
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `experimentalImports` | Rewrites ESM imports to CJS-shaped `var X = require("m").X` so `inlineRequires` can recognise them.                                |
 | `inline`              | `Platform.OS`, `Platform.select({...})` substitution. (`__DEV__` / `process.env.NODE_ENV` are handled by SWC's optimizer globals.) |
-| `inlineRequires`      | Moves top-level `var X = require("m")` aliases to each use site; supports `memoizeCalls`.                                          |
+| `inlineRequires`      | Moves top-level `var X = require("m")` aliases to each use site; supports `memoizeCalls` and JSX tag-name live reads.              |
 | `constantFolding`     | Folds `true && x`, `'ios' === 'android' ? a : b`, constant `if` branches.                                                          |
 
 Each pass is individually opt-in via options — production (via

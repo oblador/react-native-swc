@@ -247,6 +247,185 @@ describe('memoizeCalls=false:', () => {
     );
   });
 
+  test('inlines candidate referenced inside an update expression on a member', () => {
+    // Regression: @shopify/react-native-skia's Canvas.tsx does
+    // `SkiaViewNativeId.current++` against an imported binding. The named
+    // import was promoted to a `var SkiaViewNativeId = require(...).SkiaViewNativeId`
+    // candidate, but `visit_mut_update_expr` did not recurse into the
+    // MemberExpr arg — so the use site was never inlined while the
+    // declaration was still removed by phase 3, producing a runtime
+    // ReferenceError ("Property 'SkiaViewNativeId' doesn't exist").
+    compareInlineRequires(
+      [
+        'var SkiaViewNativeId = require("./id").SkiaViewNativeId;',
+        'SkiaViewNativeId.current++;',
+      ].join('\n'),
+      'require("./id").SkiaViewNativeId.current++;',
+      opts,
+    );
+  });
+
+  test('keeps declaration when an update expression targets the candidate directly', () => {
+    // `X++` on a candidate must keep `var X = require(...)` around — the
+    // inlined form `(require("m"))++` would be an invalid update target.
+    compareInlineRequires(
+      ['var counter = require("./counter");', 'counter++;'].join('\n'),
+      ['var counter = require("./counter");', 'counter++;'].join('\n'),
+      opts,
+    );
+  });
+
+  test('rewrites JSX element-name candidates through live getter helpers', () => {
+    // JSX element names cannot be arbitrary expressions, so `<FooBar />`
+    // cannot become `<require("m").FooBar />`. Use a generated JSX-legal
+    // member expression whose getter performs the fresh require-property read
+    // at the eventual jsx(...) call site.
+    compareInlineRequires(
+      [
+        'var FooBar = require("m").FooBar;',
+        'function Component() {',
+        '  return <FooBar foo="bar" />;',
+        '}',
+      ].join('\n'),
+      [
+        'var _jsxImportFooBar = {',
+        '  get FooBar() {',
+        '    return require("m").FooBar;',
+        '  }',
+        '};',
+        'function Component() {',
+        '  return <_jsxImportFooBar.FooBar foo="bar" />;',
+        '}',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('keeps non-JSX references inlineable when the same candidate is used as a JSX tag', () => {
+    compareInlineRequires(
+      [
+        'var Foo = require("m").Foo;',
+        'function Component() {',
+        '  return <Foo />;',
+        '}',
+        'function getFoo() {',
+        '  return Foo;',
+        '}',
+      ].join('\n'),
+      [
+        'var _jsxImportFoo = {',
+        '  get Foo() {',
+        '    return require("m").Foo;',
+        '  }',
+        '};',
+        'function Component() {',
+        '  return <_jsxImportFoo.Foo />;',
+        '}',
+        'function getFoo() {',
+        '  return require("m").Foo;',
+        '}',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('rewrites JSX member-expression roots through live getter helpers', () => {
+    // `<HelperText.Container/>` — the root `HelperText` is a candidate; the
+    // rewrite has to handle JSXMemberExpression element names too.
+    compareInlineRequires(
+      [
+        'var HelperText = require("m").HelperText;',
+        'function Component() {',
+        '  return <HelperText.Container foo="bar" />;',
+        '}',
+      ].join('\n'),
+      [
+        'var _jsxImportHelperText = {',
+        '  get HelperText() {',
+        '    return require("m").HelperText;',
+        '  }',
+        '};',
+        'function Component() {',
+        '  return <_jsxImportHelperText.HelperText.Container foo="bar" />;',
+        '}',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('keeps expression-body arrows expression-bodied when rewriting JSX tags', () => {
+    compareInlineRequires(
+      ['var X = require("m").X;', 'const C = () => <X />;'].join('\n'),
+      [
+        'var _jsxImportX = {',
+        '  get X() {',
+        '    return require("m").X;',
+        '  }',
+        '};',
+        'const C = () => <_jsxImportX.X />;',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('preserves directive prologues when inserting JSX helpers', () => {
+    compareInlineRequires(
+      ['"use strict";', 'var X = require("m").X;', 'const C = <X />;'].join('\n'),
+      [
+        '"use strict";',
+        'var _jsxImportX = {',
+        '  get X() {',
+        '    return require("m").X;',
+        '  }',
+        '};',
+        'const C = <_jsxImportX.X />;',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('does not rewrite JSX tags that resolve to local lexical bindings', () => {
+    compareInlineRequires(
+      [
+        'var Foo = require("m").Foo;',
+        'function Component() {',
+        '  const Foo = LocalFoo;',
+        '  return <Foo />;',
+        '}',
+      ].join('\n'),
+      ['function Component() {', '  const Foo = LocalFoo;', '  return <Foo />;', '}'].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
+  test('does not let for-head lexical bindings shadow later JSX tags', () => {
+    compareInlineRequires(
+      [
+        'var Foo = require("m").Foo;',
+        'function Component(items) {',
+        '  for (const Foo of items) {',
+        '    Foo();',
+        '  }',
+        '  return <Foo />;',
+        '}',
+      ].join('\n'),
+      [
+        'var _jsxImportFoo = {',
+        '  get Foo() {',
+        '    return require("m").Foo;',
+        '  }',
+        '};',
+        'function Component(items) {',
+        '  for (const Foo of items) {',
+        '    Foo();',
+        '  }',
+        '  return <_jsxImportFoo.Foo />;',
+        '}',
+      ].join('\n'),
+      { ...opts, jsx: true },
+    );
+  });
+
   test('inlines functions provided via `inlineableCalls`', () => {
     compareInlineRequires(
       [
@@ -308,6 +487,24 @@ describe('memoizeCalls=true:', () => {
       ['var a = require("./a").b;', 'a();'].join('\n'),
       ['var a;', '(a || (a = require("./a").b))();'].join('\n'),
       opts,
+    );
+  });
+
+  test('JSX helper getters use the memoized substitute when memoizeCalls=true', () => {
+    compareInlineRequires(
+      ['var X = require("m").X;', 'function C() {', '  return <X />;', '}'].join('\n'),
+      [
+        'var X;',
+        'var _jsxImportX = {',
+        '  get X() {',
+        '    return X || (X = require("m").X);',
+        '  }',
+        '};',
+        'function C() {',
+        '  return <_jsxImportX.X />;',
+        '}',
+      ].join('\n'),
+      { ...opts, jsx: true },
     );
   });
 
