@@ -542,6 +542,48 @@ impl<'a> VisitMut for InlineReplacer<'a> {
         self.pop_scope();
     }
 
+    fn visit_mut_constructor(&mut self, ctor: &mut Constructor) {
+        self.push_scope(true);
+        for param in &ctor.params {
+            match param {
+                ParamOrTsParamProp::Param(p) => {
+                    collect_pat_atoms(&p.pat, &mut |n| {
+                        if self.inlineable_calls.contains(n) {
+                            self.requires_shadowed += 1;
+                        }
+                        self.declare_local(n.clone());
+                    });
+                }
+                ParamOrTsParamProp::TsParamProp(p) => {
+                    let name = match &p.param {
+                        TsParamPropParam::Ident(bi) => bi.id.sym.clone(),
+                        TsParamPropParam::Assign(a) => {
+                            if let Pat::Ident(bi) = a.left.as_ref() {
+                                bi.id.sym.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+                    if self.inlineable_calls.contains(&name) {
+                        self.requires_shadowed += 1;
+                    }
+                    self.declare_local(name);
+                }
+            }
+        }
+        if let Some(body) = &ctor.body {
+            collect_fn_var_atoms(body, &mut |n| {
+                if self.inlineable_calls.contains(n) {
+                    self.requires_shadowed += 1;
+                }
+                self.declare_local(n.clone());
+            });
+        }
+        ctor.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
         self.push_scope(false);
         collect_block_lexical_atoms(block, &mut |n| {

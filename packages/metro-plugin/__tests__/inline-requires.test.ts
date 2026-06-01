@@ -174,6 +174,35 @@ describe('memoizeCalls=false:', () => {
     compareInlineRequires(code, code, opts);
   });
 
+  test('does not inline a candidate shadowed by a class constructor parameter', () => {
+    // `Constructor` is its own AST node (not a `Function`)
+    const code = [
+      'var foo = require("foo");',
+      'class C {',
+      '  constructor(foo) {',
+      '    this.bar = foo.bar;',
+      '  }',
+      '}',
+    ].join('\n');
+    compareInlineRequires(code, code, opts);
+  });
+
+  test('does not inline a candidate shadowed by a class method parameter', () => {
+    // Companion to the constructor regression — class methods route through
+    // `visit_mut_function` (their inner `function` is a real `Function`
+    // node), but it's worth pinning the behaviour explicitly so a future
+    // visitor refactor doesn't quietly regress it.
+    const code = [
+      'var foo = require("foo");',
+      'class C {',
+      '  m(foo) {',
+      '    return foo.bar;',
+      '  }',
+      '}',
+    ].join('\n');
+    compareInlineRequires(code, code, opts);
+  });
+
   test('does not transform require calls that are already inline', () => {
     const code = `
         function test() {
