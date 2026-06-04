@@ -13,6 +13,7 @@ import {
   type ReactConfig,
 } from '@swc/core';
 
+import { getExpoAppManifest } from './expo-inline-manifest';
 import { decodeRawSourceMap } from './source-map';
 import type {
   ExtendedParserConfig,
@@ -98,17 +99,28 @@ function buildInlineEnvs(
   options: JsTransformOptions,
   filename: string,
   userConfig: SwcTransformerOptions | undefined,
+  projectRoot: string | undefined,
 ): Record<string, string> {
   const { dev, platform, customTransformOptions } = options;
-  const projectRoot = (options as unknown as { projectRoot?: string }).projectRoot;
+  const possibleProjectRoot =
+    projectRoot ?? (options as unknown as { projectRoot?: string }).projectRoot ?? '';
+  const environment = customTransformOptions?.environment;
+  const shouldInlineManifest = platform === 'web' || environment === 'react-server';
 
   const envs: Record<string, string> = {
     NODE_ENV: dev ? 'development' : 'production',
     EXPO_OS: platform ?? '',
   };
 
-  if (projectRoot) {
-    envs.EXPO_PROJECT_ROOT = projectRoot;
+  if (shouldInlineManifest) {
+    const manifest = getExpoAppManifest(possibleProjectRoot);
+    if (manifest != null) {
+      envs.APP_MANIFEST = manifest;
+    }
+  }
+
+  if (possibleProjectRoot) {
+    envs.EXPO_PROJECT_ROOT = possibleProjectRoot;
 
     const routerRoot =
       typeof customTransformOptions?.routerRoot === 'string'
@@ -117,7 +129,7 @@ function buildInlineEnvs(
     const asyncRoutes =
       customTransformOptions?.asyncRoutes === 'true' ||
       customTransformOptions?.asyncRoutes === true;
-    const absAppRoot = join(projectRoot, routerRoot);
+    const absAppRoot = join(possibleProjectRoot, routerRoot);
 
     envs.EXPO_ROUTER_APP_ROOT = relative(dirname(filename), absAppRoot);
     envs.EXPO_ROUTER_ABS_APP_ROOT = absAppRoot;
@@ -248,9 +260,10 @@ export function runSwc(
   filename: string,
   options: JsTransformOptions,
   userConfig: SwcTransformerOptions | undefined,
+  projectRoot?: string,
 ): { code: string; map: MetroSourceMapSegmentTuple[] } {
   const { dev } = options;
-  const envs = buildInlineEnvs(options, filename, userConfig);
+  const envs = buildInlineEnvs(options, filename, userConfig, projectRoot);
 
   const reactConfig: ReactConfig = {
     runtime: 'automatic',

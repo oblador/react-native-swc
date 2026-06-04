@@ -70,7 +70,7 @@ export const transform = async (
     ? generateCodegenSource(filename, sourceCode)
     : sourceCode;
 
-  const { code, map } = runSwc(origSrc, filename, options, config.swcConfig);
+  const { code, map } = runSwc(origSrc, filename, options, config.swcConfig, projectRoot);
 
   const jsType: JSFileType = options.type === 'script' ? 'js/script' : 'js/module';
 
