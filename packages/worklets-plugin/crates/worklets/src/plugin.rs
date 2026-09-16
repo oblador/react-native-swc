@@ -2679,6 +2679,17 @@ fn build_worklet_code_and_map(
             return_type: None,
         }),
     });
+    // The worklet runtime evaluates this string directly — `eval(initData.code)`
+    // as of react-native-worklets 0.10 — so it has to be an *expression*. A bare
+    // `function name() {}` is a declaration, and `eval` on one completes with
+    // `undefined`, which makes the unpacker throw on `workletFun.bind(...)`.
+    // Runtimes up to 0.9 wrapped the string in parentheses themselves; the
+    // resulting double parens are still a valid expression, so emitting them
+    // here is safe in both directions.
+    let fn_expr = Expr::Paren(ParenExpr {
+        span: DUMMY_SP,
+        expr: Box::new(fn_expr),
+    });
     match cm {
         Some(cm) => emit_expr_with_source_map(&fn_expr, cm, location),
         None => (

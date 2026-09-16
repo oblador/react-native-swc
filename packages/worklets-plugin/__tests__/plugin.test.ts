@@ -240,6 +240,29 @@ describe('swc worklets plugin', () => {
       expect(code).toHaveWorkletData();
     });
 
+    test('serializes the worklet body as an evaluable expression', () => {
+      // The runtime does `eval(initData.code)` (react-native-worklets >= 0.10).
+      // A bare function declaration completes with `undefined` there, so the
+      // string has to stay an expression.
+      const input = `
+        function foo() {
+          'worklet';
+          return 1 + 1;
+        }
+      `;
+      const { code } = runPlugin(input);
+      // Parsed as a string literal rather than via `getWorkletStrings`, whose
+      // unescaping is lossy (`\n` becomes `n`) and fine for substring checks
+      // but not for evaluating the result.
+      const literals = code.match(/code:\s*"(?:[^"\\]|\\.)*"/g) ?? [];
+      expect(literals.length).toBeGreaterThan(0);
+      for (const literal of literals) {
+        const source = JSON.parse(literal.slice(literal.indexOf('"')));
+        // eslint-disable-next-line no-eval
+        expect(typeof eval(source)).toBe('function');
+      }
+    });
+
     test('injects its version', () => {
       const input = `
         function foo() {
