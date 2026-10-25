@@ -64,45 +64,37 @@ url = "https://github.com/jdx/hk/releases/download/v1.44.1/hk-aarch64-apple-darw
 checksum = "sha256:1ded329d70266fc3c4fe319ca48678614532ea7187ffd785d820e01bcdbf7f58"
 url = "https://github.com/jdx/hk/releases/download/v1.44.1/hk-x86_64-pc-windows-msvc.zip"
 
-[[tools.java]]
-version = "openjdk-17.0.2"
-backend = "core:java"
-
-[tools.java."platforms.macos-arm64"]
-checksum = "sha256:602d7de72526368bb3f80d95c4427696ea639d2e0cc40455f53ff0bbb18c27c8"
-url = "https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_macos-aarch64_bin.tar.gz"
-
 [[tools.node]]
-version = "25.9.0"
+version = "26.12.1"
 backend = "core:node"
 
 [tools.node."platforms.linux-arm64"]
-checksum = "sha256:8fb4283301b8c720fc9f18bffff0f659e72cc14d0cf207a3bb411808aaa73a57"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-linux-arm64.tar.gz"
+checksum = "sha256:a6c01af459dd8972ab3fb08ee5da81244d26ba8c4944a62d5bbba8c597ae154f"
+url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-linux-arm64.tar.gz"
 
 [tools.node."platforms.linux-arm64-musl"]
-checksum = "sha256:8fb4283301b8c720fc9f18bffff0f659e72cc14d0cf207a3bb411808aaa73a57"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-linux-arm64.tar.gz"
+checksum = "sha256:c3694551f6cb888fe0befb4cb2e13ffe45b0bb2528ec141e7c3a29a7d7974d13"
+url = "https://unofficial-builds.nodejs.org/download/release/v26.12.1/node-v26.12.1-linux-arm64-musl.tar.gz"
 
 [tools.node."platforms.linux-x64"]
-checksum = "sha256:134e55b2408448a219760fe04dc44d6851f9de8a79549021ffd870e9082d9e7b"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-linux-x64.tar.gz"
+checksum = "sha256:0fd1eb7770598f52a21995edf6ed35fc690400fa437c2386af329519e9143132"
+url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-linux-x64.tar.gz"
 
 [tools.node."platforms.linux-x64-musl"]
-checksum = "sha256:134e55b2408448a219760fe04dc44d6851f9de8a79549021ffd870e9082d9e7b"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-linux-x64.tar.gz"
+checksum = "sha256:8bf9cc0e7f8e3c7ec5368dca19242cad651b6b09d35bcdcf290ac3f80925e8dd"
+url = "https://unofficial-builds.nodejs.org/download/release/v26.12.1/node-v26.12.1-linux-x64-musl.tar.gz"
 
 [tools.node."platforms.macos-arm64"]
-checksum = "sha256:e479f3c469d3d9303a44f00a8ea37a3788395d171bb8059c48a4bbbd2e371b59"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-darwin-arm64.tar.gz"
+checksum = "sha256:1901d539912c02afa10d1cc126943a8855a7eedebe830119463470db5e6c59e8"
+url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-darwin-arm64.tar.gz"
 
 [tools.node."platforms.macos-x64"]
-checksum = "sha256:7d737b53ce191142bfa1c17cfa5b070d96e84eebf76b8dd06d84981cbdc3f7e3"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-darwin-x64.tar.gz"
+checksum = "sha256:b85c2ea4420ad0bc4abf2dc6cf1f55130ed681f1cabf60cf3f526e4c9e2712ff"
+url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-darwin-x64.tar.gz"
 
 [tools.node."platforms.windows-x64"]
-checksum = "sha256:929552b8305effac843ba7b4270c437aefb702fc3fbd73fcd1bffd35d4ac284e"
-url = "https://nodejs.org/dist/v25.9.0/node-v25.9.0-win-x64.zip"
+checksum = "sha256:b3efd5c70cba3308ed46e7e699a9b8aac075bbc6b027fcb39c84c31acc25e2b4"
+url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.zip"
 
 [[tools.pkl]]
 version = "0.31.1"
@@ -140,34 +132,42 @@ url = "https://github.com/apple/pkl/releases/download/0.31.1/pkl-windows-amd64.e
 version = "3.4.9"
 backend = "core:ruby"
 
+[tools.ruby.options]
+compile = "false"
+precompiled_url = "jdx/ruby"
+ruby_build_repo = "https://github.com/rbenv/ruby-build.git"
+ruby_install = "false"
+
 [tools.ruby."platforms.linux-arm64"]
-checksum = "sha256:f348275fd89d1234919005daadeaf6a7b7eacaabc5bb00e71c7d7fc150ed59b3"
-url = "https://github.com/jdx/ruby/releases/download/3.4.9-1/ruby-3.4.9.arm64_linux.tar.gz"
+checksum = "sha256:52a94adb98b36337189fc68e168ae7f86cd74c7ec52366c7eec662132d06ccb7"
+url = "https://github.com/jdx/ruby/releases/download/3.4.9-7/ruby-3.4.9.arm64_linux.tar.gz"
 provenance = "github-attestations"
 
 [tools.ruby."platforms.linux-arm64-musl"]
-checksum = "sha256:f348275fd89d1234919005daadeaf6a7b7eacaabc5bb00e71c7d7fc150ed59b3"
-url = "https://github.com/jdx/ruby/releases/download/3.4.9-1/ruby-3.4.9.arm64_linux.tar.gz"
-provenance = "github-attestations"
+checksum = "sha256:7bb4d4f5e807cc27251d14d9d6086d182c5b25875191e44ab15b709cd7a7dd9c"
+url = "https://cache.ruby-lang.org/pub/ruby/3.4/ruby-3.4.9.tar.gz"
 
 [tools.ruby."platforms.linux-x64"]
-checksum = "sha256:7d8c21127b20508f695f8e0577a648395a03eb4199aab472d2a7b15bcda055d0"
-url = "https://github.com/jdx/ruby/releases/download/3.4.9-1/ruby-3.4.9.x86_64_linux.tar.gz"
+checksum = "sha256:b47063ffef6c3207f30d9817ae9399e496fa90bbab545d3b1709c86a61fb7725"
+url = "https://github.com/jdx/ruby/releases/download/3.4.9-7/ruby-3.4.9.x86_64_linux.tar.gz"
 provenance = "github-attestations"
 
 [tools.ruby."platforms.linux-x64-musl"]
-checksum = "sha256:7d8c21127b20508f695f8e0577a648395a03eb4199aab472d2a7b15bcda055d0"
-url = "https://github.com/jdx/ruby/releases/download/3.4.9-1/ruby-3.4.9.x86_64_linux.tar.gz"
-provenance = "github-attestations"
+checksum = "sha256:7bb4d4f5e807cc27251d14d9d6086d182c5b25875191e44ab15b709cd7a7dd9c"
+url = "https://cache.ruby-lang.org/pub/ruby/3.4/ruby-3.4.9.tar.gz"
 
 [tools.ruby."platforms.macos-arm64"]
-checksum = "sha256:ef60a09b62610ff999b63cebdf1ce87c2dc13f4f6711f3127de4705bca65af10"
-url = "https://github.com/jdx/ruby/releases/download/3.4.9-1/ruby-3.4.9.macos.tar.gz"
+checksum = "sha256:f7569e4f455ddd7c1e17b50ace8d7adf91b4205d6e9fdc382316ea95b8cf75eb"
+url = "https://github.com/jdx/ruby/releases/download/3.4.9-7/ruby-3.4.9.macos.tar.gz"
 provenance = "github-attestations"
 
 [tools.ruby."platforms.macos-x64"]
 checksum = "sha256:7bb4d4f5e807cc27251d14d9d6086d182c5b25875191e44ab15b709cd7a7dd9c"
 url = "https://cache.ruby-lang.org/pub/ruby/3.4/ruby-3.4.9.tar.gz"
+
+[[tools.ruby]]
+version = "3.4.9"
+backend = "core:ruby"
 
 [tools.ruby."platforms.windows-x64"]
 checksum = "sha256:4375268618b61dadf53bf8e54beaca74ea30580c90d3c47ea9f2a134bd3e494e"
@@ -176,3 +176,7 @@ url = "https://github.com/oneclick/rubyinstaller2/releases/download/RubyInstalle
 [[tools.rust]]
 version = "1.93.0"
 backend = "core:rust"
+
+[tools.rust.options]
+profile = "default"
+targets = "wasm32-wasip1"
