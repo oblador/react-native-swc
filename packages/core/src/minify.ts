@@ -39,10 +39,12 @@ export function shouldMinify(options: JsTransformOptions): boolean {
 //      param. Reserved names must NOT be mangled because downstream tooling
 //      pattern-matches on the literal symbol.
 //
-// We deliberately do NOT supply our own defaults. If the user passes no
-// `minifierConfig`, SWC's own defaults (full `compress`, full `mangle`)
-// apply. This matches how Metro itself behaves: its defaults live in the
-// caller's `metro-config`, not inside the minifier.
+// Keep SWC defaults except for the two variable-motion optimizations below.
+// SWC 1.16.20 can move `const result = native.install()` past a subsequent
+// `delete globalThis.holder`, breaking native initialization. Both reduce_vars
+// and collapse_vars must be disabled to preserve ordering. Remove this default
+// workaround when the native-initialization regression passes upstream.
+// Explicit user options can still opt into either optimization.
 
 type TerserStyleConfig = {
   compress?: boolean | Record<string, unknown>;
@@ -75,11 +77,12 @@ function namePreservationOptions(cfg: TerserStyleConfig): Record<string, boolean
 
 function compressOption(cfg: TerserStyleConfig): JsMinifyOptions['compress'] {
   if (cfg.compress === false) return false;
-  const names = namePreservationOptions(cfg);
-  if (cfg.compress != null && typeof cfg.compress === 'object') {
-    return { ...names, ...cfg.compress } as JsMinifyOptions['compress'];
-  }
-  return Object.keys(names).length > 0 ? names : true;
+  return {
+    reduce_vars: false,
+    collapse_vars: false,
+    ...namePreservationOptions(cfg),
+    ...(cfg.compress != null && typeof cfg.compress === 'object' ? cfg.compress : {}),
+  } as JsMinifyOptions['compress'];
 }
 
 function mangleOption(
