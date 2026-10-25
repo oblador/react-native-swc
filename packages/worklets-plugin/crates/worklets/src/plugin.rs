@@ -46,6 +46,7 @@ pub struct WorkletsPlugin {
     pub file_bindings: FxHashSet<Atom>,
     pub source_map: Option<Lrc<SourceMap>>,
     pending_prepends: Vec<Stmt>,
+    function_prepends: Vec<Vec<Stmt>>,
 }
 
 impl WorkletsPlugin {
@@ -63,6 +64,7 @@ impl WorkletsPlugin {
             file_bindings: FxHashSet::default(),
             source_map: None,
             pending_prepends: vec![],
+            function_prepends: vec![],
         }
     }
 
@@ -152,10 +154,8 @@ impl WorkletsPlugin {
 
     fn strip_worklet_directives(stmts: &mut Vec<Stmt>) {
         stmts.retain(|s| match str_stmt_value(s) {
-            Some(v) => !matches!(
-                v,
-                WORKLET_DIRECTIVE | "no-worklet-closure" | "limit-init-data-hoisting"
-            ),
+            // Keep configuration directives until make_factory_call consumes them.
+            Some(v) => v != WORKLET_DIRECTIVE,
             None => true,
         });
     }
@@ -185,11 +185,23 @@ impl WorkletsPlugin {
         &mut self,
         func_name: Option<&str>,
         params: Vec<Param>,
-        body: FunctionBody,
+        mut body: FunctionBody,
         mut closure_vars: Vec<Ident>,
         is_generator: bool,
         is_async: bool,
     ) -> Expr {
+        let has_directive = |name| body.stmts.iter().any(|s| str_stmt_value(s) == Some(name));
+        if !self.options.bundle_mode && has_directive("no-worklet-closure") {
+            closure_vars.clear();
+        }
+        let limit_init_data_hoisting = has_directive("limit-init-data-hoisting");
+        body.stmts.retain(|s| {
+            !matches!(
+                str_stmt_value(s),
+                Some(WORKLET_DIRECTIVE | "no-worklet-closure" | "limit-init-data-hoisting")
+            )
+        });
+
         let (worklet_name, react_name) = self.next_name(func_name);
 
         // Two bodies are produced from the same source body:
@@ -248,12 +260,21 @@ impl WorkletsPlugin {
 
         // Schedule init_data prepend — always emitted; the native Reanimated
         // runtime needs it to hydrate the worklet on iOS/Android.
-        self.pending_prepends.push(make_init_data_decl(
+        let init_data = make_init_data_decl(
             &init_id,
             &code_str,
             &location_str,
             source_map_str.as_deref(),
-        ));
+        );
+        if let Some(prepends) = self
+            .function_prepends
+            .last_mut()
+            .filter(|_| limit_init_data_hoisting)
+        {
+            prepends.push(init_data);
+        } else {
+            self.pending_prepends.push(init_data);
+        }
 
         // Factory body statements
         let mut stmts: Vec<Stmt> = vec![];
@@ -1039,6 +1060,20 @@ impl VisitMut for WorkletsPlugin {
             out.push(s);
         }
         script.body = out;
+    }
+
+    fn visit_mut_function_body(&mut self, body: &mut FunctionBody) {
+        // Limited init data belongs to the enclosing function, including when
+        // that function is serialized into a separately initialized runtime.
+        self.function_prepends.push(Vec::new());
+        body.visit_mut_children_with(self);
+        let prepends = self.function_prepends.pop().unwrap();
+        let prologue_len = body
+            .stmts
+            .iter()
+            .take_while(|s| str_stmt_value(s).is_some())
+            .count();
+        body.stmts.splice(prologue_len..prologue_len, prepends);
     }
 
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {

@@ -22,7 +22,7 @@
 // Make this file a module so that `declare global { ... }` works.
 export {};
 
-import { runInNewContext } from 'node:vm';
+import { createContext, runInContext, runInNewContext } from 'node:vm';
 
 import { transform as runTransform } from './run-plugin';
 
@@ -211,6 +211,49 @@ describe('swc worklets plugin', () => {
   // -------------------------------------------------------------------------
 
   describe('generally', () => {
+    test.each(['development', 'production'])(
+      'unpackers keep limited nested init data inside their runtime in %s',
+      (environment) => {
+        process.env.NODE_ENV = environment;
+        const { code } = runPlugin(`
+          function installUnpacker() {
+            'worklet';
+            'no-worklet-closure';
+            function make(value) {
+              return () => {
+                'worklet';
+                'limit-init-data-hoisting';
+                return value;
+              };
+            }
+            globalThis.make = make;
+          }
+        `);
+        const installer = runInNewContext(code + '; installUnpacker', { global: { Error } });
+        expect(Object.keys(installer.__closure)).toEqual([]);
+        const runtime = createContext({});
+        runInContext('globalThis.global = globalThis', runtime);
+        runInContext(installer.__initData.code, runtime)();
+        const nested = runtime.make(42);
+        const hydrate = runInContext(nested.__initData.code, runtime);
+        expect(hydrate.call(nested)).toBe(42);
+      },
+    );
+
+    test('no-worklet-closure resolves free names in the destination runtime', () => {
+      const { code } = runPlugin(`
+        const destinationValue = 1;
+        function readValue() {
+          'worklet';
+          'no-worklet-closure';
+          return destinationValue;
+        }
+      `);
+      const worklet = runInNewContext(code + '; readValue', { global: { Error } });
+      expect(Object.keys(worklet.__closure)).toEqual([]);
+      expect(runInNewContext(worklet.__initData.code, { destinationValue: 42 })()).toBe(42);
+    });
+
     test.each(['development', 'production'])(
       'serialized worklets evaluate directly to callable functions in %s',
       (environment) => {
