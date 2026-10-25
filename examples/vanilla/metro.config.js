@@ -18,15 +18,17 @@ const config = {
     // package (e.g. `react-native-safe-area-context`) resolves `react`
     // from its pnpm realpath. Pin every request for `react` /
     // `react-native` (and their subpaths like `react/jsx-dev-runtime`)
-    // to this app's copy so React's dispatcher is shared.
+    // to this app's copy so React's dispatcher is shared. Resolving
+    // the bare specifier as if imported from this directory (rather
+    // than rewriting it to an absolute path) keeps package `exports`
+    // working and finds the copy wherever the hoisted linker put it.
     resolveRequest: (context, moduleName, platform) => {
       const pinned = ['react', 'react-native'];
       for (const base of pinned) {
         if (moduleName === base || moduleName.startsWith(base + '/')) {
-          const rest = moduleName.slice(base.length);
           return context.resolveRequest(
-            context,
-            path.join(__dirname, 'node_modules', base) + rest,
+            { ...context, originModulePath: path.join(__dirname, 'index.js') },
+            moduleName,
             platform,
           );
         }
