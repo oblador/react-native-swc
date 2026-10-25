@@ -107,3 +107,32 @@ test('format overrides output while retaining other output options', async () =>
   expect(result.code).not.toContain('preserve me');
   expect(result.code).not.toContain('東京');
 });
+
+test('keeps native initialization before deleting its runtime holders', async () => {
+  const result = await minifier({
+    code: `function install() {
+      globalThis.holder = { ready: true };
+      const status = native.install();
+      delete globalThis.holder;
+      return status;
+    }
+    globalThis.answer = install();`,
+    filename: 'native-init.js',
+    map: null,
+    reserved: [],
+    config: {},
+  });
+  const runtime = {
+    holder: undefined as unknown,
+    answer: undefined as unknown,
+    native: {
+      install() {
+        expect(runtime.holder).toEqual({ ready: true });
+        return true;
+      },
+    },
+  };
+  runInNewContext(result.code, runtime);
+  expect(runtime.answer).toBe(true);
+  expect(runtime.holder).toBeUndefined();
+});
