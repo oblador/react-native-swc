@@ -13,8 +13,14 @@
 
 import { Buffer } from 'node:buffer';
 import { runInNewContext } from 'node:vm';
+import { captureExpoEnvironment } from '../src/env';
 import { transformSync } from '@swc/core';
-import { transform, transformRequires, collectRequireRefs } from '../src/transform-worker';
+import {
+  transform,
+  transformRequires,
+  collectRequireRefs,
+  getCacheKey,
+} from '../src/transform-worker';
 import type { JsTransformerConfig, JsTransformOptions } from '../src/types';
 
 const baseConfig: JsTransformerConfig = {
@@ -1180,3 +1186,31 @@ test.each([true, false])(
     expect(exports.default).toBe(dependency.state);
   },
 );
+
+test('captures the Expo native fetch selection in worker config and cache keys', async () => {
+  const selected = {
+    ...baseConfig,
+    swcConfig: captureExpoEnvironment(undefined, { EXPO_PUBLIC_USE_RN_FETCH: '1' }),
+  };
+  const changed = {
+    ...baseConfig,
+    swcConfig: captureExpoEnvironment(undefined, { EXPO_PUBLIC_USE_RN_FETCH: '0' }),
+  };
+  const override = captureExpoEnvironment(
+    { envs: { EXPO_PUBLIC_USE_RN_FETCH: 'explicit' } },
+    { EXPO_PUBLIC_USE_RN_FETCH: '1' },
+  );
+  expect(captureExpoEnvironment(undefined, {})).toBeUndefined();
+  expect(getCacheKey(selected)).not.toBe(getCacheKey(changed));
+  expect(selected.swcConfig?.envs?.EXPO_PUBLIC_USE_RN_FETCH).toBe('1');
+  expect(changed.swcConfig?.envs?.EXPO_PUBLIC_USE_RN_FETCH).toBe('0');
+  expect(override?.envs?.EXPO_PUBLIC_USE_RN_FETCH).toBe('explicit');
+  const result = await transform(
+    selected,
+    '/root',
+    'node_modules/expo/src/winter/runtime.native.ts',
+    Buffer.from('if (process.env.EXPO_PUBLIC_USE_RN_FETCH !== "1") require("./fetch");'),
+    { ...baseTransformOptions, dev: false, minify: true },
+  );
+  expect(result.dependencies).toEqual([]);
+});
