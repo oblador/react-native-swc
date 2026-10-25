@@ -2680,6 +2680,13 @@ fn build_worklet_code_and_map(
             return_type: None,
         }),
     });
+    // Native unpackers and the release value unpacker evaluate this string
+    // directly. A bare named function is a declaration whose value is undefined.
+    // Keep the parentheses in the AST so source-map columns include them too.
+    let fn_expr = Expr::Paren(ParenExpr {
+        span: DUMMY_SP,
+        expr: Box::new(fn_expr),
+    });
     match cm {
         Some(cm) => emit_expr_with_source_map(&fn_expr, cm, location),
         None => (
