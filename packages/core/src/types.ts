@@ -71,6 +71,12 @@ export interface JsTransformerConfig {
    * by Metro via a custom `transformer.swcConfig` key.
    */
   readonly swcConfig?: SwcTransformerOptions;
+  /**
+   * The `transformerPath` that `withSwcTransformer` replaced (e.g. Expo's
+   * worker), forwarded via a custom `transformer.swcUpstreamTransformerPath`
+   * key. File types SWC can't handle, such as CSS, are delegated to it.
+   */
+  readonly swcUpstreamTransformerPath?: string;
 }
 
 export interface CustomTransformOptions {

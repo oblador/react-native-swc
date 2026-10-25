@@ -2,6 +2,7 @@ import type { MetroConfig } from 'metro-config';
 import { captureExpoEnvironment } from './env';
 
 import type { SwcTransformerOptions } from './transform-worker';
+import { getUpstreamTransformerPath } from './upstream';
 
 export type { SwcTransformerOptions } from './transform-worker';
 
@@ -11,9 +12,13 @@ export type { SwcTransformerOptions } from './transform-worker';
 
 function applySwcTransformer(config: MetroConfig, swcConfig?: SwcTransformerOptions): MetroConfig {
   const effectiveSwcConfig = captureExpoEnvironment(swcConfig);
+  const ownTransformerPath = require.resolve('./transform-worker');
+  // Keep the worker we're replacing (e.g. Expo's) so file types SWC can't
+  // handle, such as CSS, can be routed back to it.
+  const upstreamTransformerPath = getUpstreamTransformerPath(config, ownTransformerPath);
   return {
     ...config,
-    transformerPath: require.resolve('./transform-worker'),
+    transformerPath: ownTransformerPath,
     transformer: {
       ...config.transformer,
       minifierPath: require.resolve('./minifier'),
@@ -21,6 +26,7 @@ function applySwcTransformer(config: MetroConfig, swcConfig?: SwcTransformerOpti
         ...config.transformer?.minifierConfig,
       },
       ...(effectiveSwcConfig ? { swcConfig: effectiveSwcConfig } : {}),
+      ...(upstreamTransformerPath ? { swcUpstreamTransformerPath: upstreamTransformerPath } : {}),
     },
   };
 }

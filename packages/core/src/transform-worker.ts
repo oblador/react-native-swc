@@ -3,7 +3,9 @@
  *
  * Babel is no longer on the hot path. The pipeline is:
  *
- *   1. Route by file type (asset / JSON / script / module).
+ *   1. Route by file type (CSS / asset / JSON / script / module). CSS is
+ *      handed to the upstream worker `withSwcTransformer` replaced (Expo's),
+ *      since its output feeds that bundler's CSS serializer.
  *   2. For JS/TS files: run SWC (`swc.ts`) — one pass for type stripping,
  *      JSX, ESM→CJS, Hermes down-levelling, and the built-in metro-post
  *      WASM plugin (optional experimental-import rewrite / inline /
@@ -23,6 +25,7 @@ import { runSwc } from './swc';
 import { transformAsset } from './assets';
 import { transformJs } from './transform-js';
 import { transformJson } from './json';
+import { loadUpstreamTransformer } from './upstream';
 import type {
   JsTransformOptions,
   JsTransformerConfig,
@@ -54,6 +57,10 @@ export const transform = async (
   data: Buffer,
   options: JsTransformOptions,
 ): Promise<TransformResponse> => {
+  if (options.type !== 'asset' && CSS_FILE_RE.test(filename)) {
+    return transformCss(config, projectRoot, filename, data, options);
+  }
+
   const sourceCode = data.toString('utf8');
 
   validateReservedStrings(sourceCode, config, options);
@@ -92,7 +99,7 @@ export const transform = async (
 
 export const getCacheKey = (
   config: JsTransformerConfig,
-  _opts?: Readonly<{ projectRoot: string }>,
+  opts?: Readonly<{ projectRoot: string }>,
 ): string => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const swcPkg = require('@swc/core/package.json') as { version: string };
@@ -106,10 +113,47 @@ export const getCacheKey = (
   const userConfigKey = config.swcConfig
     ? createHash('sha1').update(JSON.stringify(config.swcConfig)).digest('hex')
     : '';
-  return [metroGetCacheKey([__filename]), `swc@${swcPkg.version}`, userConfigKey].join('$');
+  // CSS output comes from the upstream worker, so its key (which covers
+  // e.g. Expo's postcss / browserslist / sass config) must be part of ours.
+  const upstream = config.swcUpstreamTransformerPath
+    ? loadUpstreamTransformer(config.swcUpstreamTransformerPath)
+    : undefined;
+  const upstreamKey = upstream?.getCacheKey?.(config, opts) ?? '';
+  return [metroGetCacheKey([__filename]), `swc@${swcPkg.version}`, userConfigKey, upstreamKey].join(
+    '$',
+  );
 };
 
 export default { transform, getCacheKey };
+
+// ---------------------------------------------------------------------------
+// Upstream delegation
+// ---------------------------------------------------------------------------
+
+const CSS_FILE_RE = /\.(s?css|sass)$/;
+
+function transformCss(
+  config: JsTransformerConfig,
+  projectRoot: string,
+  filename: string,
+  data: Buffer,
+  options: JsTransformOptions,
+): Promise<TransformResponse> {
+  if (!config.swcUpstreamTransformerPath) {
+    throw new Error(
+      `${filename}: @react-native-swc/core can't transform CSS on its own. CSS files are ` +
+        'delegated to the transformer that `withSwcTransformer` replaces (e.g. ' +
+        "Expo's `expo/metro-config`), and this Metro config doesn't have one.",
+    );
+  }
+  return loadUpstreamTransformer(config.swcUpstreamTransformerPath).transform(
+    config,
+    projectRoot,
+    filename,
+    data,
+    options,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Small local helpers
