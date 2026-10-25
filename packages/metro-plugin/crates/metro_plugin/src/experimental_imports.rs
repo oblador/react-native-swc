@@ -30,6 +30,7 @@
 //! the `exports.foo = …` / `Object.defineProperty(exports, "__esModule", …)`
 //! shape Metro expects.
 
+use rustc_hash::FxHashSet;
 use swc_core::common::{Span, DUMMY_SP};
 use swc_core::ecma::ast::*;
 
@@ -46,6 +47,34 @@ pub fn rewrite_imports(program: &mut Program, preserve_namespace_imports: bool) 
 }
 
 fn rewrite_module(module: &mut Module, preserve_namespace_imports: bool) {
+    // An imported binding re-exported locally must keep following the source
+    // module. A `var local = require(...).value` would capture its initial value,
+    // which can still be undefined before an esbuild-style initializer runs.
+    let exported_locals: FxHashSet<Id> = module
+        .body
+        .iter()
+        .filter_map(|item| match item {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named))
+                if named.src.is_none() && !named.type_only =>
+            {
+                Some(named)
+            }
+            _ => None,
+        })
+        .flat_map(|named| {
+            named
+                .specifiers
+                .iter()
+                .filter_map(|specifier| match specifier {
+                    ExportSpecifier::Named(named) if !named.is_type_only => match &named.orig {
+                        ModuleExportName::Ident(local) => Some(local.to_id()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        })
+        .collect();
+
     // Emission layout:
     //
     //   "use strict"
@@ -75,7 +104,9 @@ fn rewrite_module(module: &mut Module, preserve_namespace_imports: bool) {
             ModuleItem::ModuleDecl(ModuleDecl::Import(decl)) => {
                 saw_esm = true;
                 if decl.specifiers.iter().any(|s| {
-                    preserve_namespace_imports && matches!(s, ImportSpecifier::Namespace(_))
+                    exported_locals.contains(&s.local().to_id())
+                        || (preserve_namespace_imports
+                            && matches!(s, ImportSpecifier::Namespace(_)))
                 }) {
                     // SWC's CommonJS interop copies property descriptors rather
                     // than invoking getters (notably React Native's lazy exports).

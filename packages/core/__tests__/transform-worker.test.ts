@@ -1150,3 +1150,33 @@ test.each([true, false])('namespace imports preserve lazy native getters (dev=%s
   });
   expect(exports.answer).toBe(42);
 });
+
+test.each([true, false])(
+  're-exported imports stay live after dependency initialization (dev=%s)',
+  async (dev) => {
+    const source =
+      'import { initialize, state } from "./state"; initialize(); export { state as default, state };';
+    const result = await transform(baseConfig, '/root', 'state-entry.js', Buffer.from(source), {
+      ...baseTransformOptions,
+      dev,
+      minify: !dev,
+      inlineRequires: true,
+    });
+    const dependency = {
+      state: undefined as unknown,
+      initialize() {
+        dependency.state = { callStatus: 'ready' };
+      },
+    };
+    const exports: Record<string, unknown> = {};
+    runInNewContext(result.output[0].data.code, {
+      __d(factory: Function) {
+        factory({}, () => dependency, undefined, undefined, { exports }, exports, [0]);
+      },
+    });
+    expect(exports.default).toEqual({ callStatus: 'ready' });
+    dependency.state = { callStatus: 'connected' };
+    expect(exports.state).toEqual({ callStatus: 'connected' });
+    expect(exports.default).toBe(dependency.state);
+  },
+);
