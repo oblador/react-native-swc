@@ -40,7 +40,7 @@ export async function transformJson(
   let map: MetroSourceMapSegmentTuple[] = [];
 
   if (shouldMinify(options)) {
-    ({ code: finalCode, map } = minifyCode(finalCode, []));
+    ({ code: finalCode, map } = minifyCode(finalCode, [], map, config));
   }
 
   const { lineCount, map: finalMap } = countLinesAndTerminateMap(finalCode, map);

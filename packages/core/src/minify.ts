@@ -4,6 +4,7 @@
  * transform worker so minify + source-map composition stays in one place.
  */
 import { minifySync, type JsMinifyOptions } from '@swc/core';
+import type { Minifier } from 'metro-transform-worker';
 
 import { composeSourceMaps, decodeRawSourceMap } from './source-map';
 import type { JsTransformerConfig, JsTransformOptions, MetroSourceMapSegmentTuple } from './types';
@@ -48,6 +49,7 @@ type TerserStyleConfig = {
   mangle?: boolean | Record<string, unknown>;
   // Terser's name for the codegen options block; SWC calls it `format`.
   output?: Record<string, unknown>;
+  format?: Record<string, unknown>;
   // Top-level passthroughs that share their name with SWC.
   toplevel?: boolean;
   ecma?: number | string;
@@ -64,12 +66,20 @@ function readMinifierConfig(config: JsTransformerConfig | undefined): TerserStyl
   return config.minifierConfig as TerserStyleConfig;
 }
 
+function namePreservationOptions(cfg: TerserStyleConfig): Record<string, boolean> {
+  const options: Record<string, boolean> = {};
+  if (cfg.keep_classnames != null) options.keep_classnames = cfg.keep_classnames;
+  if (cfg.keep_fnames != null) options.keep_fnames = cfg.keep_fnames;
+  return options;
+}
+
 function compressOption(cfg: TerserStyleConfig): JsMinifyOptions['compress'] {
   if (cfg.compress === false) return false;
+  const names = namePreservationOptions(cfg);
   if (cfg.compress != null && typeof cfg.compress === 'object') {
-    return cfg.compress as JsMinifyOptions['compress'];
+    return { ...names, ...cfg.compress } as JsMinifyOptions['compress'];
   }
-  return true;
+  return Object.keys(names).length > 0 ? names : true;
 }
 
 function mangleOption(
@@ -81,9 +91,11 @@ function mangleOption(
     cfg.mangle != null && typeof cfg.mangle === 'object'
       ? (cfg.mangle as Record<string, unknown>)
       : undefined;
-  if (!user && reserved.length === 0) return true;
+  const names = namePreservationOptions(cfg);
+  if (!user && reserved.length === 0 && Object.keys(names).length === 0) return true;
   const userReserved = (user?.reserved as ReadonlyArray<string> | undefined) ?? [];
   return {
+    ...names,
     ...user,
     reserved: [...userReserved, ...reserved],
   } as JsMinifyOptions['mangle'];
@@ -93,17 +105,19 @@ function formatOption(cfg: TerserStyleConfig): JsMinifyOptions['format'] {
   // Terser's `output` block maps to SWC's `format`. SWC accepts both
   // camelCase and snake_case keys inside format (via `ToSnakeCaseProperties`),
   // so passing terser-style keys verbatim works.
-  return cfg.output as JsMinifyOptions['format'];
+  if (cfg.output == null && cfg.format == null) return undefined;
+  return { ...cfg.output, ...cfg.format } as JsMinifyOptions['format'];
 }
 
 function buildMinifyOptions(
   cfg: TerserStyleConfig,
   reserved: ReadonlyArray<string>,
+  sourceMap = true,
 ): JsMinifyOptions {
   const opts: JsMinifyOptions = {
     compress: compressOption(cfg),
     mangle: mangleOption(cfg, reserved),
-    sourceMap: true,
+    sourceMap,
   };
   const format = formatOption(cfg);
   if (format != null) opts.format = format;
@@ -137,3 +151,23 @@ export function minifyCode(
     map: composeSourceMaps(minifiedMap, inputMap),
   };
 }
+
+export const metroMinifier: Minifier = function metroMinifier(options) {
+  const { code, map, filename, reserved, config } = options;
+
+  const swcOptions = buildMinifyOptions(config, reserved, !!map);
+
+  const result = minifySync(code, swcOptions);
+
+  if (!map || result.map == null) {
+    return { code: result.code };
+  }
+
+  return {
+    code: result.code,
+    map: {
+      ...JSON.parse(result.map),
+      sources: [filename],
+    },
+  };
+};
