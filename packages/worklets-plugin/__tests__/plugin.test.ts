@@ -22,6 +22,8 @@
 // Make this file a module so that `declare global { ... }` works.
 export {};
 
+import { runInNewContext } from 'node:vm';
+
 import { transform as runTransform } from './run-plugin';
 
 const MOCK_LOCATION = '/dev/null';
@@ -209,6 +211,29 @@ describe('swc worklets plugin', () => {
   // -------------------------------------------------------------------------
 
   describe('generally', () => {
+    test.each(['development', 'production'])(
+      'serialized worklets evaluate directly to callable functions in %s',
+      (environment) => {
+        process.env.NODE_ENV = environment;
+        const { code } = runPlugin(`
+          function installUnpacker() {
+            'worklet';
+            'no-worklet-closure';
+            globalThis.unpack = (value) => value + 1;
+          }
+        `);
+        const serialized = runInNewContext(code + '; installUnpacker.__initData.code', {
+          global: { Error },
+        });
+        const runtime: { unpack?: (value: number) => number } = {};
+        // Worklets' native UnpackerLoader evaluates the string without adding parentheses.
+        const install = runInNewContext(serialized, runtime);
+        expect(typeof install).toBe('function');
+        install();
+        expect(runtime.unpack?.(41)).toBe(42);
+      },
+    );
+
     test('transforms', () => {
       const input = `
         import Animated, {
