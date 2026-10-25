@@ -431,14 +431,16 @@ impl Visit for RefCollector<'_> {
                 if let PropName::Computed(c) = &g.key {
                     c.expr.visit_with(self);
                 }
-                g.body.visit_with(self);
+                g.function.body.visit_with(self);
             }
             Prop::Setter(s) => {
                 if let PropName::Computed(c) = &s.key {
                     c.expr.visit_with(self);
                 }
-                self.visit_pat_refs(&s.param);
-                s.body.visit_with(self);
+                for p in &s.function.params {
+                    self.visit_pat_refs(&p.pat);
+                }
+                s.function.body.visit_with(self);
             }
             Prop::Method(m) => {
                 if let PropName::Computed(c) = &m.key {

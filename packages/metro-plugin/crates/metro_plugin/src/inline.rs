@@ -92,7 +92,7 @@ fn wrapped_inner_stmts<'a>(stmts: &'a [&Stmt]) -> Option<Vec<&'a Stmt>> {
                             }
                         }
                         Expr::Arrow(a) => {
-                            if let BlockStmtOrExpr::BlockStmt(body) = a.body.as_ref() {
+                            if let ArrowFunctionBody::FunctionBody(body) = a.body.as_ref() {
                                 return Some(body.stmts.iter().collect());
                             }
                         }
@@ -433,7 +433,7 @@ impl<'a> VisitMut for InlineVisitor<'a> {
             for param in &f.params {
                 collect_pat_atoms(param, &mut |n| self.declare_local(n.clone()));
             }
-            if let BlockStmtOrExpr::BlockStmt(body) = f.body.as_ref() {
+            if let ArrowFunctionBody::FunctionBody(body) = f.body.as_ref() {
                 collect_var_atoms_shallow(body, &mut |n| self.declare_local(n.clone()));
             }
         }
@@ -442,6 +442,43 @@ impl<'a> VisitMut for InlineVisitor<'a> {
     }
 
     fn visit_mut_block_stmt(&mut self, b: &mut BlockStmt) {
+        let new_decls: Vec<Atom> = b
+            .stmts
+            .iter()
+            .filter_map(|s| {
+                if let Stmt::Decl(Decl::Var(vd)) = s {
+                    if vd.kind != VarDeclKind::Var {
+                        return Some(
+                            vd.decls
+                                .iter()
+                                .filter_map(|d| {
+                                    if let Pat::Ident(bi) = &d.name {
+                                        Some(bi.id.sym.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                }
+                None
+            })
+            .flatten()
+            .collect();
+
+        for name in &new_decls {
+            self.declare_local(name.clone());
+        }
+        b.visit_mut_children_with(self);
+        if let Some(scope) = self.local_scopes.last_mut() {
+            for name in &new_decls {
+                scope.remove(name);
+            }
+        }
+    }
+
+    fn visit_mut_function_body(&mut self, b: &mut FunctionBody) {
         let new_decls: Vec<Atom> = b
             .stmts
             .iter()
@@ -594,7 +631,7 @@ fn collect_pat_atoms(pat: &Pat, emit: &mut impl FnMut(&Atom)) {
     }
 }
 
-fn collect_var_atoms_shallow(block: &BlockStmt, emit: &mut impl FnMut(&Atom)) {
+fn collect_var_atoms_shallow(block: &FunctionBody, emit: &mut impl FnMut(&Atom)) {
     for stmt in &block.stmts {
         collect_var_in_stmt(stmt, emit);
     }

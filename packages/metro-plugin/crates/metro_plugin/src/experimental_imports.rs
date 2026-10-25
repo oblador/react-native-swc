@@ -239,9 +239,9 @@ fn rewrite_reexport_all(all: ExportAll) -> ModuleItem {
     let k = ident("k");
 
     // body of `Object.keys(_m).forEach(function(k) { … })`
-    let for_each_body = BlockStmt {
+    let for_each_body = FunctionBody {
         span,
-        ctxt: Default::default(),
+
         stmts: vec![Stmt::If(IfStmt {
             span,
             test: Box::new(Expr::Bin(BinExpr {
@@ -308,13 +308,14 @@ fn rewrite_reexport_all(all: ExportAll) -> ModuleItem {
                                     value: Box::new(Expr::Fn(FnExpr {
                                         ident: None,
                                         function: Box::new(Function {
+                                            this_param: None,
                                             params: vec![],
                                             decorators: vec![],
                                             span,
                                             ctxt: Default::default(),
-                                            body: Some(BlockStmt {
+                                            body: Some(FunctionBody {
                                                 span,
-                                                ctxt: Default::default(),
+
                                                 stmts: vec![Stmt::Return(ReturnStmt {
                                                     span,
                                                     arg: Some(Box::new(Expr::Member(MemberExpr {
@@ -365,6 +366,7 @@ fn rewrite_reexport_all(all: ExportAll) -> ModuleItem {
         vec![Expr::Fn(FnExpr {
             ident: None,
             function: Box::new(Function {
+                this_param: None,
                 params: vec![Param {
                     span,
                     decorators: vec![],
@@ -385,9 +387,9 @@ fn rewrite_reexport_all(all: ExportAll) -> ModuleItem {
         })],
     );
 
-    let iife_body = BlockStmt {
+    let iife_body = FunctionBody {
         span,
-        ctxt: Default::default(),
+
         stmts: vec![
             Stmt::Decl(Decl::Var(Box::new(VarDecl {
                 span,
@@ -410,6 +412,7 @@ fn rewrite_reexport_all(all: ExportAll) -> ModuleItem {
         callee: Callee::Expr(Box::new(Expr::Fn(FnExpr {
             ident: None,
             function: Box::new(Function {
+                this_param: None,
                 params: vec![],
                 decorators: vec![],
                 span,
@@ -457,13 +460,14 @@ fn module_export_name_str(name: &ModuleExportName) -> String {
 /// Build `Object.defineProperty(exports, "<name>", { enumerable: true, get: function() { return <value>; } });`
 fn define_property_getter(span: Span, export_name: &str, value: Expr) -> ModuleItem {
     let getter = Function {
+        this_param: None,
         params: vec![],
         decorators: vec![],
         span,
         ctxt: Default::default(),
-        body: Some(BlockStmt {
+        body: Some(FunctionBody {
             span,
-            ctxt: Default::default(),
+
             stmts: vec![Stmt::Return(ReturnStmt {
                 span,
                 arg: Some(Box::new(value)),
