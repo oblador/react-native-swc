@@ -70,9 +70,9 @@ fn inline_style_warning(orig: Expr) -> Expr {
                 span: DUMMY_SP,
                 ctxt: Default::default(),
                 params: vec![],
-                body: Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
+                body: Box::new(ArrowFunctionBody::FunctionBody(FunctionBody {
                     span: DUMMY_SP,
-                    ctxt: Default::default(),
+
                     stmts: vec![
                         Stmt::Expr(ExprStmt {
                             span: DUMMY_SP,

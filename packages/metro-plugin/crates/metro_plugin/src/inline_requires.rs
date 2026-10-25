@@ -530,7 +530,7 @@ impl<'a> VisitMut for InlineReplacer<'a> {
                 self.declare_local(n.clone());
             });
         }
-        if let BlockStmtOrExpr::BlockStmt(body) = f.body.as_ref() {
+        if let ArrowFunctionBody::FunctionBody(body) = f.body.as_ref() {
             collect_fn_var_atoms(body, &mut |n| {
                 if self.inlineable_calls.contains(n) {
                     self.requires_shadowed += 1;
@@ -587,6 +587,18 @@ impl<'a> VisitMut for InlineReplacer<'a> {
     fn visit_mut_block_stmt(&mut self, block: &mut BlockStmt) {
         self.push_scope(false);
         collect_block_lexical_atoms(block, &mut |n| {
+            if self.inlineable_calls.contains(n) {
+                self.requires_shadowed += 1;
+            }
+            self.declare_local(n.clone());
+        });
+        block.visit_mut_children_with(self);
+        self.pop_scope();
+    }
+
+    fn visit_mut_function_body(&mut self, block: &mut FunctionBody) {
+        self.push_scope(false);
+        collect_body_lexical_atoms(&block.stmts, &mut |n| {
             if self.inlineable_calls.contains(n) {
                 self.requires_shadowed += 1;
             }
@@ -886,14 +898,15 @@ fn jsx_helper_declarator(helper: JsxHelper) -> VarDeclarator {
     let getter = GetterProp {
         span: DUMMY_SP,
         key: PropName::Ident(IdentName::new(helper.prop, DUMMY_SP)),
-        type_ann: None,
-        body: Some(BlockStmt {
-            span: DUMMY_SP,
-            ctxt: Default::default(),
-            stmts: vec![Stmt::Return(ReturnStmt {
+        function: Box::new(Function {
+            body: Some(FunctionBody {
                 span: DUMMY_SP,
-                arg: Some(helper.value),
-            })],
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    span: DUMMY_SP,
+                    arg: Some(helper.value),
+                })],
+            }),
+            ..Default::default()
         }),
     };
 
@@ -1087,7 +1100,7 @@ impl<'a> VisitMut for ShadowRenamer<'a> {
     }
 
     fn visit_mut_arrow_expr(&mut self, a: &mut ArrowExpr) {
-        if let BlockStmtOrExpr::BlockStmt(body) = a.body.as_mut() {
+        if let ArrowFunctionBody::FunctionBody(body) = a.body.as_mut() {
             let renames = self.collect_shadows(&body.stmts);
             if !renames.is_empty() {
                 let mut bulk = BulkIdentRenamer { renames: &renames };
@@ -1156,14 +1169,14 @@ impl<'a> VisitMut for BulkIdentRenamer<'a> {
 
     fn visit_mut_arrow_expr(&mut self, a: &mut ArrowExpr) {
         let redeclares = match a.body.as_ref() {
-            BlockStmtOrExpr::BlockStmt(b) => b.stmts.iter().any(|s| {
+            ArrowFunctionBody::FunctionBody(b) => b.stmts.iter().any(|s| {
                 if let Stmt::Decl(Decl::Fn(fd)) = s {
                     self.renames.contains_key(&fd.ident.sym)
                 } else {
                     false
                 }
             }),
-            BlockStmtOrExpr::Expr(_) => false,
+            ArrowFunctionBody::Expr(_) => false,
         };
         if redeclares {
             return;
@@ -1241,14 +1254,18 @@ fn collect_pat_atoms(pat: &Pat, emit: &mut dyn FnMut(&Atom)) {
     }
 }
 
-fn collect_fn_var_atoms(block: &BlockStmt, emit: &mut dyn FnMut(&Atom)) {
+fn collect_fn_var_atoms(block: &FunctionBody, emit: &mut dyn FnMut(&Atom)) {
     for stmt in &block.stmts {
         collect_var_in_stmt(stmt, emit);
     }
 }
 
 fn collect_block_lexical_atoms(block: &BlockStmt, emit: &mut dyn FnMut(&Atom)) {
-    for stmt in &block.stmts {
+    collect_body_lexical_atoms(&block.stmts, emit);
+}
+
+fn collect_body_lexical_atoms(stmts: &[Stmt], emit: &mut dyn FnMut(&Atom)) {
+    for stmt in stmts {
         collect_lexical_in_stmt(stmt, emit);
     }
 }

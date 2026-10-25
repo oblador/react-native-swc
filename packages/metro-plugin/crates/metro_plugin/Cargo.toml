@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 bench = false
 
 [dependencies]
-swc_core = { version = "63", features = [
+swc_core = { version = "82.2.0", features = [
   "ecma_ast",
   "ecma_visit",
   "ecma_utils",
@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive"] }
 rustc-hash = "2"
 
 [dev-dependencies]
-swc_core = { version = "63", features = [
+swc_core = { version = "82.2.0", features = [
   "ecma_ast",
   "ecma_visit",
   "ecma_utils",

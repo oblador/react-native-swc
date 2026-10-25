@@ -17,7 +17,7 @@ require(_dependencyMap[0]);
 "
 `;
 
-exports[`reports filename when encountering unsupported dynamic dependency 1`] = `"local/file.js: Dynamic require is not supported. Encountered a require() call with a non-literal argument at line 5."`;
+exports[`reports filename when encountering unsupported dynamic dependency 1`] = `"local/file.js: Dynamic require is not supported. Encountered a require() call with a non-literal argument at line 4."`;
 
 exports[`supports dynamic dependencies from within \`node_modules\` 1`] = `
 "__d(function(global, require, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, exports, _dependencyMap) {
@@ -216,11 +216,8 @@ function asyncGeneratorStep(gen, resolve, reject, _next, _throw, key, arg) {
         reject(error);
         return;
     }
-    if (info.done) {
-        resolve(value);
-    } else {
-        Promise.resolve(value).then(_next, _throw);
-    }
+    if (info.done) resolve(value);
+    else Promise.resolve(value).then(_next, _throw);
 }
 function _async_to_generator(fn) {
     return function() {
