@@ -1,4 +1,5 @@
 import type { MetroConfig } from 'metro-config';
+import { captureExpoEnvironment } from './env';
 
 import type { SwcTransformerOptions } from './transform-worker';
 
@@ -9,6 +10,7 @@ export type { SwcTransformerOptions } from './transform-worker';
 // ---------------------------------------------------------------------------
 
 function applySwcTransformer(config: MetroConfig, swcConfig?: SwcTransformerOptions): MetroConfig {
+  const effectiveSwcConfig = captureExpoEnvironment(swcConfig);
   return {
     ...config,
     transformerPath: require.resolve('./transform-worker'),
@@ -18,7 +20,7 @@ function applySwcTransformer(config: MetroConfig, swcConfig?: SwcTransformerOpti
       minifierConfig: {
         ...config.transformer?.minifierConfig,
       },
-      ...(swcConfig ? { swcConfig } : {}),
+      ...(effectiveSwcConfig ? { swcConfig: effectiveSwcConfig } : {}),
     },
   };
 }
