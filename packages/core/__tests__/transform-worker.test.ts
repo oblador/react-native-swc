@@ -12,6 +12,7 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { runInNewContext } from 'node:vm';
 import { transformSync } from '@swc/core';
 import { transform, transformRequires, collectRequireRefs } from '../src/transform-worker';
 import type { JsTransformerConfig, JsTransformOptions } from '../src/types';
@@ -1117,4 +1118,35 @@ test('worklet fn_decl replacement keeps subsequent references live', async () =>
   // declaration — not a renamed `ReanimatedErrorConstructor1`.
   expect(code).toMatch(/\b(?:const|var) ReanimatedErrorConstructor\s*=\s*function/);
   expect(code).not.toMatch(/\b(?:const|var) ReanimatedErrorConstructor1\s*=/);
+});
+
+test.each([true, false])('namespace imports preserve lazy native getters (dev=%s)', async (dev) => {
+  const result = await transform(
+    baseConfig,
+    '/root',
+    'consumer.js',
+    Buffer.from('import * as Native from "react-native"; export const answer = Native.available;'),
+    { ...baseTransformOptions, dev, minify: !dev, inlineRequires: true },
+  );
+  const native = {
+    available: 42,
+    get unavailable() {
+      throw new Error('Native module is not linked');
+    },
+  };
+  const exports: Record<string, unknown> = {};
+  runInNewContext(result.output[0].data.code, {
+    __d(factory: Function) {
+      factory(
+        {},
+        () => native,
+        undefined,
+        () => ({ ...native, default: native }),
+        { exports },
+        exports,
+        [0],
+      );
+    },
+  });
+  expect(exports.answer).toBe(42);
 });

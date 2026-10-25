@@ -34,7 +34,7 @@ fn bench(c: &mut Criterion) {
         b.iter_batched(
             || parsed.clone(),
             |mut program| {
-                rewrite_imports(&mut program);
+                rewrite_imports(&mut program, false);
                 program
             },
             criterion::BatchSize::SmallInput,

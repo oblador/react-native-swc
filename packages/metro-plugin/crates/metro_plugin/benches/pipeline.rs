@@ -42,7 +42,7 @@ export const Tag = "screen";
 "#;
 
 fn run_pipeline(mut program: swc_core::ecma::ast::Program) -> swc_core::ecma::ast::Program {
-    experimental_imports::rewrite_imports(&mut program);
+    experimental_imports::rewrite_imports(&mut program, true);
     let mut envs: FxHashMap<Atom, String> = FxHashMap::default();
     envs.insert(Atom::from("NODE_ENV"), "production".into());
     inline::inline_plugin(
