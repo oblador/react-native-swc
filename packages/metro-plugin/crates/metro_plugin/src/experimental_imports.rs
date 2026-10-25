@@ -37,15 +37,15 @@ const IMPORT_DEFAULT: &str = "_$$_IMPORT_DEFAULT";
 const IMPORT_ALL: &str = "_$$_IMPORT_ALL";
 
 /// Rewrite every top-level `ImportDecl` in `program`.
-pub fn rewrite_imports(program: &mut Program) {
+pub fn rewrite_imports(program: &mut Program, preserve_namespace_imports: bool) {
     match program {
-        Program::Module(m) => rewrite_module(m),
+        Program::Module(m) => rewrite_module(m, preserve_namespace_imports),
         // Scripts can't carry ESM imports; nothing to do.
         Program::Script(_) => {}
     }
 }
 
-fn rewrite_module(module: &mut Module) {
+fn rewrite_module(module: &mut Module, preserve_namespace_imports: bool) {
     // Emission layout:
     //
     //   "use strict"
@@ -74,7 +74,15 @@ fn rewrite_module(module: &mut Module) {
         match item {
             ModuleItem::ModuleDecl(ModuleDecl::Import(decl)) => {
                 saw_esm = true;
-                imports.push(rewrite(decl));
+                if decl.specifiers.iter().any(|s| {
+                    preserve_namespace_imports && matches!(s, ImportSpecifier::Namespace(_))
+                }) {
+                    // SWC's CommonJS interop copies property descriptors rather
+                    // than invoking getters (notably React Native's lazy exports).
+                    imports.push(ModuleItem::ModuleDecl(ModuleDecl::Import(decl)));
+                } else {
+                    imports.push(rewrite(decl));
+                }
             }
             ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named))
                 if named.src.is_some() && !named.type_only =>

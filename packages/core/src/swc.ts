@@ -205,6 +205,7 @@ function resolveMetroPostPlugin(): string {
  */
 interface PostTransformOptions {
   experimentalImports: boolean;
+  preserveNamespaceImports: boolean;
   inline: boolean;
   inlineRequires: boolean;
   constantFolding: boolean;
@@ -262,6 +263,10 @@ export function runSwc(
     // Production always runs the ESM→CJS rewrite and the inline pass; the
     // other two are gated by upstream Metro options.
     experimentalImports: true,
+    // Metro's import-all helper eagerly reads CommonJS getters. Preserve
+    // namespaces for SWC's descriptor-aware interop unless the app explicitly
+    // selects Metro's experimental import semantics.
+    preserveNamespaceImports: !options.experimentalImportSupport,
     inline: true,
     inlineRequires: options.inlineRequires,
     // Match Metro's gate: constant folding only in production.

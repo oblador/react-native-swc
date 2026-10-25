@@ -20,6 +20,7 @@ struct PostTransformPluginOptions {
     // `inline_requires` / `constant_folding`. Tests flip one at a time to
     // exercise a pass in isolation.
     experimental_imports: bool,
+    preserve_namespace_imports: bool,
     inline: bool,
     inline_requires: bool,
     constant_folding: bool,
@@ -56,7 +57,7 @@ pub fn process_transform(
     // `require(...)` first so `inline_requires` can recognise it, then inline
     // constants, then move requires to use sites, then fold constants.
     if options.experimental_imports {
-        experimental_imports::rewrite_imports(&mut program);
+        experimental_imports::rewrite_imports(&mut program, options.preserve_namespace_imports);
     }
 
     if options.inline {
