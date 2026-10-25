@@ -56,7 +56,7 @@ async function transformScript(ctx: TransformJsContext): Promise<TransformRespon
   let map = shiftGeneratedLines(ctx.inputMap, countNewlines('(function(global) {\n'));
 
   if (shouldMinify(ctx.options)) {
-    ({ code, map } = minifyCode(code, [], map));
+    ({ code, map } = minifyCode(code, [], map, ctx.config));
   }
 
   const { lineCount, map: finalMap } = countLinesAndTerminateMap(code, map);

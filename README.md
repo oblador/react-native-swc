@@ -126,6 +126,10 @@ interface SwcTransformerOptions {
 }
 ```
 
+### Minification
+
+Metro's `transformer.minifierConfig` applies to JavaScript modules, scripts, JSON, and the standalone minifier. Both `output` and `format` are supported; `format` takes precedence when both specify the same option. User-reserved names are combined with Metro's reserved names.
+
 ### Limitations
 
 - **Custom Babel plugins from `babel.config.js` are not executed.** Reanimated is covered by `@react-native-swc/worklets-plugin` in this repo, for other use cases see [SWC plugin directory](https://plugins.swc.rs).
