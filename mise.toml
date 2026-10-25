@@ -1,6 +1,6 @@
 [tools]
 
-java = "openjdk-17"
+# java = "openjdk-17"
 "gem:bundler" = "latest"
 "aqua:sharkdp/hyperfine" = "latest"
 hk = "latest"
