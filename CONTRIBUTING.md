@@ -64,7 +64,7 @@ react-native-swc/
 2. Add or update tests. New behaviours without coverage are unlikely to
    land.
 3. Run `pnpm format` and make sure `pnpm test && pnpm typecheck && cargo
-test --workspace` pass locally.
+   test --workspace` pass locally.
 4. Commit messages: short imperative subject line, extra context in the body
    if useful.
 
